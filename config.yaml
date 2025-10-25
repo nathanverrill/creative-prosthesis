@@ -1,0 +1,14 @@
+# config.yaml
+# Configuration for the F1 Songwriting Agent
+
+# Defines the sequence of steps the agent will take.
+# Each string corresponds to a key in the AGENT_ACTIONS map in app/main.py
+agent_sequence:
+  - get_f1_results        # Fetches F1 data using the search tool
+  - run_songwriter        # Writes the first draft of the song
+  - run_carlin_critic     # Critiques the first draft using the Carlin persona
+  # - run_factual_critic  # Example: Add a factual critic by uncommenting (after creating the module)
+  - run_refiner           # Example: Add a refinement step (after creating the module)
+  # nsfw_reviewer         
+  # grok
+  # when to use a local model?

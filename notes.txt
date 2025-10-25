@@ -1,0 +1,11 @@
+Perplexity for the fact
+
+Grok for the writer - make it an agentic rap battle
+
+Songwriter personality / Band
+
+Band can be the multi-hats
+
+And that includes the researcher / and fact checker
+
+Use gemini batch api for the parallel brainstorm?

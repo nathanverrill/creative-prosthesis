@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+langchain
+langchain-google-genai
+langchain-community
+python-dotenv
+google-search-results
+nest_asyncio
