@@ -30,3 +30,9 @@ Example structure
     "in sync millennium, bye bye bye"
   ]
 }
+
+Present user with opening verse options; user chooses which one they prefer; that one is used in the creation prompt, to follow that vibe style
+
+Save user preferences to get smarter? Like history of what the user likes for references?
+
+Ability for critics to suggest changes to individual lines. Do we then change them outright, or give the songwriter a set of revisions to choose from, if they make sense in the larger context?
