@@ -526,7 +526,7 @@ It repeats all the time
               finalLyrics += "\n";
             }
           });
-          lyricsPreview.value = finalLyrics;
+          lyricsPreview.value = finalLyrics.trim();
         }
 
         async function handleCopyLyrics() {
@@ -558,21 +558,59 @@ It repeats all the time
           }
         }
 
+        // --- UPDATED FUNCTION ---
         function handleSaveLyrics() {
-          const finalLyrics = lyricsPreview.value;
-          const blob = new Blob([finalLyrics], {
+          // 1. Get Human-Edited Lyrics
+          const humanLyrics = lyricsPreview.value;
+
+          // 2. Get Percentage Changed
+          const percentage = percentageDisplay.textContent;
+
+          // 3. Reconstruct Original Lyrics from the data object
+          let originalLyricsString = "";
+          const sectionTitles = Object.keys(originalLyricsData);
+          sectionTitles.forEach((sectionTitle, sectionIndex) => {
+            originalLyricsString += sectionTitle + "\n";
+            const lines = originalLyricsData[sectionTitle];
+            // Use Object.values to get lines in the order they were added
+            Object.values(lines).forEach((lineData) => {
+              originalLyricsString += lineData.text + "\n";
+            });
+            if (sectionIndex < sectionTitles.length - 1) {
+              originalLyricsString += "\n";
+            }
+          });
+
+          // 4. Combine all content into a single string for the file
+          const fileContent = `=====================================
+== HUMAN-EDITED LYRICS ==
+=====================================
+(Percentage Changed: ${percentage})
+
+${humanLyrics}
+
+=====================================
+== ORIGINAL AI LYRICS ==
+=====================================
+
+${originalLyricsString.trim()}
+`;
+
+          // 5. Create Blob and trigger download
+          const blob = new Blob([fileContent], {
             type: "text/plain;charset=utf-8",
           });
           const link = document.createElement("a");
           const url = URL.createObjectURL(blob);
           link.href = url;
-          link.download = "edited_f1_lyrics.txt";
+          link.download = "ai_collaboration_proof.txt"; // New, more descriptive filename
           link.style.visibility = "hidden";
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
         }
+        // --- END OF UPDATED FUNCTION ---
 
         function handleReplaceAll() {
           const findText = findInput.value;

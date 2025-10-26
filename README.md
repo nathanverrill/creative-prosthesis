@@ -36,4 +36,4 @@ conversation shaping the future of creative ownership.
 If you’re interested in collaborating, attribution, or research citation, please credit:
 
 > Leclaire, A. (2025). _Creative Prosthesis: AI-Driven Composition and Code-Based Music Generation._  
-> Azro Leclaire LLC (Missouri, USA). https://creativeprosthesis.com
+> Azro Leclaire LLC (Missouri, USA).
