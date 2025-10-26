@@ -13,6 +13,8 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
 from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
 import json
+import itertools
+from operator import itemgetter
 
 # --- Import modular components ---
 from .tools.search import get_f1_results_async
@@ -81,6 +83,55 @@ def get_mood_instruction(mood: str) -> str:
     }
     return mood_instructions.get(mood.lower(), "")
 
+# --- Helper function for Critic Formatting ---
+def format_lyrics_with_sections(lyrics: List['LyricLine']) -> str:
+    """Converts a List[LyricLine] into a string with section headers."""
+    if not lyrics:
+        return "No lyrics provided."
+    
+    formatted_lyrics = []
+    current_section = None
+    
+    for L in lyrics:
+        if L.section != current_section:
+            # Add a blank line for spacing, unless it's the very first line
+            if current_section is not None:
+                formatted_lyrics.append("")
+            # Add the new section header (which already includes < >)
+            formatted_lyrics.append(L.section.strip())
+            current_section = L.section
+        
+        formatted_lyrics.append(L.line)
+        
+    return "\n".join(formatted_lyrics)
+
+# --- Helper function for UI Formatting ---
+def group_lyrics_by_section(lyrics_list: List['LyricLine']) -> List['UILyricSection']:
+    """
+    Transforms a flat List[LyricLine] into a nested list grouped by section,
+    perfect for a UI.
+    """
+    if not lyrics_list:
+        return []
+
+    grouped_sections = []
+    
+    # Use key=lambda to group by the 'section' attribute of the LyricLine objects
+    for section_name, group_iter in itertools.groupby(lyrics_list, key=lambda L: L.section):
+        
+        # Create the list of lines for this section
+        lines_in_group = [
+            UILyricLine(line=L.line, source=L.source) 
+            for L in group_iter
+        ]
+        
+        # Add the new section object to our final list
+        grouped_sections.append(
+            UILyricSection(section=section_name, lines=lines_in_group)
+        )
+        
+    return grouped_sections
+
 # --- FastAPI App Initialization ---
 app = FastAPI(title="F1 Songwriting Agent")
 
@@ -103,17 +154,30 @@ else:
 class LyricLine(BaseModel):
     line: str = Field(..., description="The text of the lyric line.")
     source: Literal["human", "machine"] = Field(..., description="The origin of the line.")
+    section: str = Field(..., description="Song section (e.g., '<verse 1>', '<chorus>', '<bridge>').")
 
 class SongRequest(BaseModel):
     theme: str
     mood: str = DEFAULT_MOOD
     draft_lyrics: List[str] = []
 
+# --- UI-Specific Models ---
+class UILyricLine(BaseModel):
+    """A line model without the redundant 'section' field."""
+    line: str
+    source: Literal["human", "machine"]
+
+class UILyricSection(BaseModel):
+    """A section containing its name and a list of lines."""
+    section: str
+    lines: List[UILyricLine]
+
 class SongResponse(BaseModel):
     theme: str
     mood_used: str
     steps_executed: list[str]
     results: Dict[str, Any]
+    lyrics_by_section: List[UILyricSection] = [] # UI-friendly nested list
 
 # --- Root Endpoint (Serves Frontend) ---
 @app.get("/", response_class=FileResponse)
@@ -131,8 +195,9 @@ async def generate_song_flow(request: SongRequest):
     current_mood = request.mood if request.mood else DEFAULT_MOOD
     print(f"\n--- Starting Generation for theme: '{request.theme}' with MOOD: {current_mood} ---")
     
+    # Assign default Suno-style section tag
     structured_draft: List[LyricLine] = [
-        LyricLine(line=line_text, source="human") 
+        LyricLine(line=line_text, source="human", section="<verse 1>") 
         for line_text in request.draft_lyrics
     ]
 
@@ -172,7 +237,8 @@ async def generate_song_flow(request: SongRequest):
             elif step_name == "run_carlin_critic":
                 lyrics_content: List[LyricLine] = current_state.get("lyrics")
                 if not lyrics_content: raise HTTPException(status_code=500, detail="State error: 'lyrics' missing.")
-                lyrics_string = "\n".join([L.line for L in lyrics_content])
+                # Use helper to format lyrics with [verse 1], [chorus] headers
+                lyrics_string = format_lyrics_with_sections(lyrics_content)
                 step_input = {"song_lyrics": lyrics_string}
 
             elif step_name == "run_refiner":
@@ -212,13 +278,14 @@ async def generate_song_flow(request: SongRequest):
                             json_parser = JsonOutputParser(pydantic_object=List[LyricLine])
                             songwriter_prompt_msgs = [
                                 ("system", 
-                                 "You are a songwriter. Your task is to complete a song based on a theme and race info. "
-                                 "You will be given existing lines written by a human as a JSON string. You MUST include these lines. "
-                                 "Your final output must be a JSON array of objects, where each object has a 'line' (string) and a 'source' (either 'human' or 'machine').\n"
+                                 "You are a songwriter. Your task is to complete a song... "
+                                 "Your final output must be a JSON array of objects, where each object has a 'line', 'source', and 'section'.\n"
                                  "Rules:\n"
-                                 "1. Preserve all lines with `source: 'human'` exactly as they are from the input.\n"
-                                 "2. Generate new lines with `source: 'machine'` to build the song around the human lines.\n"
-                                 "3. Output ONLY the valid JSON array."),
+                                 "1. You MUST include all lines where `source: 'human'`. You must NOT modify their 'line' or 'source' attributes.\n"
+                                 "2. Human lines are given a default 'section' (e.g., `\"<verse 1>\"`). You SHOULD change this 'section' tag to a more logical one (e.g., `\"<chorus>\"`) if your song structure demands it.\n"
+                                 "3. ALL lines in your final output (both human and machine) MUST have a 'section' field populated with a standard Suno-style tag, like `\"<intro>\"`, `\"<verse 1>\"`, `\"<chorus>\"`, `\"<verse 2>\"`, `\"<bridge>\"`, or `\"<outro>\"`.\n"
+                                 "4. All new lines you write must have `source: 'machine'` and a valid 'section' tag (e.g., `\"<chorus>\"`).\n"
+                                 "5. Output ONLY the valid JSON array."),
                                 ("human", 
                                  "Theme: {theme}\n"
                                  "Race Info: {race_info}\n"
@@ -236,10 +303,11 @@ async def generate_song_flow(request: SongRequest):
                                  "Your task is to revise the song. "
                                  "Your final output must be a JSON array of objects, just like the input.\n"
                                  "Rules:\n"
-                                 "1. You MUST NOT modify, delete, or re-order any line where `source` is 'human'.\n"
+                                 "1. You MUST NOT modify, delete, or re-order any line where `source` is 'human'. This includes its 'line' and 'section' attributes. They are locked.\n"
                                  "2. You MAY revise, delete, or add new lines where `source` is 'machine' based on the critique.\n"
-                                 "3. All new lines you write must have `source: 'machine'`.\n"
-                                 "4. Output ONLY the valid JSON array."),
+                                 "3. You MAY change the 'section' tag of 'machine' lines if the critique suggests a structural change (e.g., move a machine line from `\"<verse 1>\"` to `\"<bridge>\"`).\n"
+                                 "4. All new lines you write must have `source: 'machine'` and a valid 'section' tag (e.g., `\"<verse 1>\"`).\n"
+                                 "5. Output ONLY the valid JSON array."),
                                 ("human",
                                  "Original Song (JSON): {original_lyrics}\n"
                                  "Critique: {critique}\n\n"
@@ -273,15 +341,17 @@ async def generate_song_flow(request: SongRequest):
                         
                         temp_chain = prompt_to_use | llm_component | parser_to_use
                         step_output = await temp_chain.ainvoke(step_input)
+
+                        # FIX: Manually cast List[dict] to List[LyricLine]
                         if (step_name == "run_songwriter" or step_name == "run_refiner") and isinstance(step_output, list):
                             try:
-                                # This converts [ {'line': '...', 'source': '...'} ] 
-                                # into [ LyricLine(line='...', source='...') ]
+                                # This converts [ {'line': '...', 'source': '...', 'section': '...'} ] 
+                                # into [ LyricLine(...) ]
                                 step_output = [LyricLine(**item) for item in step_output]
                             except Exception as e:
                                 print(f"!!! Error casting output to List[LyricLine]: {e} !!!")
                                 traceback.print_exc()
-                                raise HTTPException(status_code=500, detail=f"Failed to parse LLM output for step {step_name}")                        
+                                raise HTTPException(status_code=500, detail=f"Failed to parse LLM output for step {step_name}")
 
                 elif hasattr(base_action, 'invoke'):
                     step_output = base_action.invoke(step_input)
@@ -310,12 +380,24 @@ async def generate_song_flow(request: SongRequest):
             print(f"--- Step {step_name} completed ---")
 
         print("--- Generation Flow Complete ---")
+
+        # Get the final lyrics (either revised or original)
+        final_lyrics_list: List[LyricLine] = current_state.get(
+            "revised_lyrics", 
+            current_state.get("lyrics", [])
+        )
+
+        # Transform the flat list into a nested, UI-friendly list
+        ui_lyrics = group_lyrics_by_section(final_lyrics_list)
+
         return SongResponse(
             theme=request.theme,
             mood_used=current_mood,
             steps_executed=steps_run,
-            results=results_log
+            results=results_log,
+            lyrics_by_section=ui_lyrics  # Pass the new list in the response
         )
+        
     except HTTPException as http_exc:
         raise http_exc
     except Exception as e:
