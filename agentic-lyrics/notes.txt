@@ -33,6 +33,29 @@ Example structure
 
 Present user with opening verse options; user chooses which one they prefer; that one is used in the creation prompt, to follow that vibe style
 
+The two options are editable so user can tweak them, still tracking human vs machine
+
 Save user preferences to get smarter? Like history of what the user likes for references?
 
 Ability for critics to suggest changes to individual lines. Do we then change them outright, or give the songwriter a set of revisions to choose from, if they make sense in the larger context?
+
+Stream back the result
+
+Entry form for filling in sections, or lyric lines -- optional
+
+Then sections are kept as, and the machine fills them in 
+
+Return version that is 'from scratch' based on the theme, and another that's filled in with the human-provided components
+
+Get meme - can just enter it along with the quotes
+
+Should theme be "inspiration"?
+
+With feature that has if use verbatim to have it in quotes
+
+Line number corrections
+
+
+Different temps / model settings for the persona types (e.g., facts vs creativity)
+
+
