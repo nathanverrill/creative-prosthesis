@@ -46,11 +46,34 @@
         width: 2px;
         background-color: #ef4444;
       }
+      /* Updated grid: Original text (with badge) | Editable input | Sync checkbox */
       .lyric-row {
         display: grid;
         grid-template-columns: 1fr 1fr auto;
         gap: 1rem;
         align-items: center;
+      }
+      .original-lyric-container {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 0.5rem;
+        text-sm text-gray-700 bg-gray-100 rounded-md border border-gray-300;
+      }
+      .source-badge {
+        font-size: 0.7rem;
+        font-weight: bold;
+        padding: 2px 6px;
+        border-radius: 9999px;
+        align-self: flex-start;
+      }
+      .source-human {
+        background-color: #d1fae5; /* green-100 */
+        color: #065f46; /* green-800 */
+      }
+      .source-machine {
+        background-color: #dbeafe; /* blue-100 */
+        color: #1e40af; /* blue-800 */
       }
       .copy-feedback {
         opacity: 0;
@@ -85,7 +108,7 @@
             id="theme-input"
             name="theme"
             class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-            placeholder="e.g., Quantum Physics"
+            placeholder="e.g., Lando Norris finally wins"
             required
           />
           <button
@@ -95,6 +118,20 @@
             Generate Lyrics
           </button>
         </div>
+      </form>
+
+      <form id="draft-form" class="mb-6">
+        <label
+          for="draft-input"
+          class="block text-sm font-medium text-gray-700 mb-1"
+          >Enter Draft Lyrics (Optional):</label
+        >
+        <textarea
+          id="draft-input"
+          rows="4"
+          class="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          placeholder="Enter one lyric per line...&#10;These will be marked 'Human'&#10;And locked into the song."
+        ></textarea>
       </form>
 
       <div
@@ -174,9 +211,7 @@
         <div
           id="lyrics-editor"
           class="space-y-6 mb-6 max-h-[60vh] overflow-y-auto pr-2"
-        >
-          <!-- Lyrics will be injected here -->
-        </div>
+        ></div>
 
         <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
           <div class="flex items-center justify-between mb-2">
@@ -213,6 +248,8 @@
     <script>
       document.addEventListener("DOMContentLoaded", (event) => {
         const themeForm = document.getElementById("theme-form");
+        const draftForm = document.getElementById("draft-form"); // Added draft form
+        const draftInput = document.getElementById("draft-input"); // Added draft input
         const loadingDiv = document.getElementById("loading");
         const resultsArea = document.getElementById("results-area");
         const lyricsEditor = document.getElementById("lyrics-editor");
@@ -233,7 +270,8 @@
         const replaceCount = document.getElementById("replace-count");
 
         let originalLyricsData = {};
-        let totalOriginalWords = 0;
+        let totalWords = 0; // <-- UPDATED
+        let initialHumanWords = 0; // <-- ADDED
 
         themeForm.addEventListener("submit", handleThemeSubmit);
         saveButton.addEventListener("click", handleSaveLyrics);
@@ -247,15 +285,24 @@
           const theme = themeInput.value.trim();
           if (!theme) return;
 
+          // Get draft lyrics
+          const draftLyrics = draftInput.value
+            .split("\n")
+            .filter((line) => line.trim() !== "");
+
           themeForm.classList.add("hidden");
+          draftForm.classList.add("hidden"); // Hide draft form
           loadingDiv.classList.remove("hidden");
           resultsArea.classList.add("hidden");
 
           try {
-            const requestBody = { theme: theme, mood: "normal" };
+            // Updated requestBody
+            const requestBody = {
+              theme: theme,
+              mood: "normal",
+              draft_lyrics: draftLyrics,
+            };
 
-            // NOTE: This fetch URL '/generate' is a placeholder and will not work
-            // in a standalone file. It assumes a backend server is running.
             const response = await fetch("/generate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -280,17 +327,32 @@
             }
 
             const data = await response.json();
-            const initialLyricsText =
-              data.results?.revised_lyrics || data.results?.lyrics;
 
-            if (!initialLyricsText) {
-              throw new Error(
-                "No 'lyrics' or 'revised_lyrics' found in the response results."
-              );
+            // --- UPDATED LOGIC ---
+            // Use the new data.lyrics_by_section
+            const sections = data.lyrics_by_section;
+            if (!sections || sections.length === 0) {
+              throw new Error("No 'lyrics_by_section' found in the response.");
             }
 
-            originalLyricsData = parseAndStoreLyrics(initialLyricsText);
-            totalOriginalWords = countTotalOriginalWords();
+            originalLyricsData = parseAndStoreLyrics(sections);
+            // --- END UPDATED LOGIC ---
+
+            // --- NEW: Calculate initial word counts ---
+            totalWords = 0;
+            initialHumanWords = 0;
+            for (const s in originalLyricsData) {
+              for (const l in originalLyricsData[s]) {
+                const line = originalLyricsData[s][l];
+                const wordCount = line.words.length;
+                totalWords += wordCount;
+                if (line.source === "human") {
+                  initialHumanWords += wordCount;
+                }
+              }
+            }
+            // --- END NEW ---
+
             displayLyricsEditor(originalLyricsData);
             resultsArea.classList.remove("hidden");
             searchReplaceArea.classList.remove("hidden");
@@ -298,97 +360,46 @@
             updateLyricsPreview();
           } catch (error) {
             console.error("Error generating lyrics:", error);
-            errorMessageDiv.classList.remove("hidden");
-            errorDetailsPre.textContent =
-              `Simulated Error: Could not connect to backend at '/generate'.\nThis app requires a backend server to function.\n\n` +
-              error.message;
-            themeForm.classList.remove("hidden");
-            resultsArea.classList.add("hidden");
-
-            // --- SIMULATION ---
-            // Simulate a successful response for testing without a backend
-            console.warn("Using simulated data because backend failed.");
-            const simulatedLyrics = `[Verse 1]
-This is a test line one
-This is a test line two
-We're testing the system now
-
-[Chorus]
-Oh, this is the chorus line
-Yes, this is the chorus line
-It repeats all the time
-
-[Verse 2]
-Here is the second verse
-It's not better, it's not worse
-Just some words to rehearse
-
-[Chorus]
-Oh, this is the chorus line
-Yes, this is the chorus line
-It repeats all the time
-`;
-            originalLyricsData = parseAndStoreLyrics(simulatedLyrics);
-            totalOriginalWords = countTotalOriginalWords();
-            displayLyricsEditor(originalLyricsData);
             loadingDiv.classList.add("hidden");
-            errorMessageDiv.classList.add("hidden"); // Hide error for simulation
-            resultsArea.classList.remove("hidden");
-            searchReplaceArea.classList.remove("hidden");
-            updatePercentage();
-            updateLyricsPreview();
-            // --- END SIMULATION ---
+            errorMessageDiv.classList.remove("hidden");
+            errorDetailsPre.textContent = error.message;
+            themeForm.classList.remove("hidden");
+            draftForm.classList.remove("hidden"); // Show draft form again on error
+            resultsArea.classList.add("hidden");
           }
         }
 
-        function parseAndStoreLyrics(lyricsText) {
-          const sections = {};
-          let currentSection = "Intro";
-          let lineIndex = 0;
-          lyricsText.split("\n").forEach((line) => {
-            line = line.trim();
-            if (line.startsWith("[")) {
-              currentSection = line;
-              sections[currentSection] = {};
-              lineIndex = 0;
-            } else if (line) {
-              if (!sections[currentSection]) {
-                sections[currentSection] = {};
-              }
-              const words = line.split(/\s+/).filter(Boolean);
-              sections[currentSection][lineIndex] = {
-                text: line,
+        // --- UPDATED FUNCTION ---
+        // Parses the new API response structure: List[UILyricSection]
+        function parseAndStoreLyrics(sections) {
+          const parsedData = {};
+
+          sections.forEach((section) => {
+            const sectionTitle = section.section; // e.g., "<verse 1>"
+            if (!parsedData[sectionTitle]) {
+              parsedData[sectionTitle] = {};
+            }
+
+            section.lines.forEach((line, index) => {
+              const words = line.line.split(/\s+/).filter(Boolean);
+              parsedData[sectionTitle][index] = {
+                text: line.line,
                 words: words,
+                source: line.source, // "human" or "machine"
               };
-              lineIndex++;
-            }
+            });
           });
-          return sections;
-        }
 
-        function countTotalOriginalWords() {
-          let count = 0;
-          for (const s in originalLyricsData) {
-            for (const l in originalLyricsData[s]) {
-              count += originalLyricsData[s][l].words.length;
-            }
-          }
-          return count;
+          return parsedData;
         }
-
-        function isChorusSection(sectionTitle) {
-          return sectionTitle.toLowerCase().includes("chorus");
-        }
+        // --- END UPDATED FUNCTION ---
 
         function syncMatchingLines(originalText, newValue) {
           const allInputs = lyricsEditor.querySelectorAll('input[type="text"]');
           allInputs.forEach((input) => {
-            // Find the checkbox for this input
             const checkbox = input.parentElement.querySelector(
               'input[type="checkbox"]'
             );
-
-            // Only sync if the original text matches and the checkbox is checked
             if (
               input.dataset.original === originalText &&
               checkbox &&
@@ -403,6 +414,8 @@ It repeats all the time
           });
         }
 
+        // --- UPDATED FUNCTION ---
+        // Now displays the 'source' badge and adds data-source to input
         function displayLyricsEditor(parsedLyrics) {
           lyricsEditor.innerHTML = "";
           Object.entries(parsedLyrics).forEach(([sectionTitle, lines]) => {
@@ -415,15 +428,29 @@ It repeats all the time
             titleH3.className = "text-lg font-semibold mb-3 text-gray-700";
             sectionDiv.appendChild(titleH3);
 
-            Object.entries(lines).forEach(([lineIndex, lineData]) => {
+            Object.values(lines).forEach((lineData, lineIndex) => {
               const lineDiv = document.createElement("div");
               lineDiv.className = "lyric-row mb-2";
 
-              // Left side - original lyrics (read-only)
+              // Left side - original lyrics (read-only) + source badge
               const originalDiv = document.createElement("div");
-              originalDiv.className =
-                "p-2 text-sm text-gray-700 bg-gray-100 rounded-md border border-gray-300";
-              originalDiv.textContent = lineData.text;
+              originalDiv.className = "original-lyric-container";
+
+              const sourceBadge = document.createElement("span");
+              sourceBadge.className = "source-badge";
+              if (lineData.source === "human") {
+                sourceBadge.textContent = "Human";
+                sourceBadge.classList.add("source-human");
+              } else {
+                sourceBadge.textContent = "Machine";
+                sourceBadge.classList.add("source-machine");
+              }
+
+              const originalText = document.createElement("span");
+              originalText.textContent = lineData.text;
+
+              originalDiv.appendChild(sourceBadge);
+              originalDiv.appendChild(originalText);
 
               // Middle - editable input
               const input = document.createElement("input");
@@ -432,6 +459,7 @@ It repeats all the time
               input.dataset.original = lineData.text;
               input.dataset.lineIndex = lineIndex;
               input.dataset.sectionTitle = sectionTitle;
+              input.dataset.source = lineData.source; // <-- ADDED
               input.className =
                 "p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500";
 
@@ -448,7 +476,6 @@ It repeats all the time
               checkbox.title = "Sync changes to matching lines";
 
               input.addEventListener("input", (e) => {
-                // Check if sync is enabled for this line
                 const syncEnabled = checkbox.checked;
                 if (syncEnabled) {
                   syncMatchingLines(input.dataset.original, e.target.value);
@@ -470,45 +497,62 @@ It repeats all the time
             lyricsEditor.appendChild(sectionDiv);
           });
         }
+        // --- END UPDATED FUNCTION ---
 
+        // --- UPDATED FUNCTION ---
+        // Calculates percentage based on initial human lines + edited machine lines
         function updatePercentage() {
-          if (totalOriginalWords === 0) {
+          if (totalWords === 0) {
             percentageDisplay.textContent = "0%";
             percentageBar.style.width = "0%";
             return;
           }
-          let changedWordsCount = 0;
+
+          let editedMachineWordsCount = 0;
           const inputs = lyricsEditor.querySelectorAll('input[type="text"]');
+
           inputs.forEach((input) => {
-            const originalText = input.getAttribute("data-original");
-            const currentText = input.value;
-            if (currentText !== originalText) {
-              const originalWords = originalText.split(/\s+/).filter(Boolean);
-              const currentWords = currentText.split(/\s+/).filter(Boolean);
-              const minLen = Math.min(
-                originalWords.length,
-                currentWords.length
-              );
-              for (let i = 0; i < minLen; i++) {
-                if (originalWords[i] !== currentWords[i]) {
-                  changedWordsCount++;
+            // Only check for edits on lines that were *originally* 'machine'
+            if (input.dataset.source === "machine") {
+              const originalText = input.getAttribute("data-original");
+              const currentText = input.value;
+
+              if (currentText !== originalText) {
+                const originalWords = originalText.split(/\s+/).filter(Boolean);
+                const currentWords = currentText.split(/\s+/).filter(Boolean);
+                const minLen = Math.min(
+                  originalWords.length,
+                  currentWords.length
+                );
+                let changedWordsInThisLine = 0;
+                for (let i = 0; i < minLen; i++) {
+                  if (originalWords[i] !== currentWords[i]) {
+                    changedWordsInThisLine++;
+                  }
                 }
+                changedWordsInThisLine += Math.abs(
+                  originalWords.length - currentWords.length
+                );
+                editedMachineWordsCount += changedWordsInThisLine;
               }
-              changedWordsCount += Math.abs(
-                originalWords.length - currentWords.length
-              );
             }
           });
+
+          // Total "human" words = words from initially human lines + edited words from machine lines
+          const totalHumanWords = initialHumanWords + editedMachineWordsCount;
+
           const percentage = Math.min(
             100,
-            Math.round((changedWordsCount / totalOriginalWords) * 100)
+            Math.round((totalHumanWords / totalWords) * 100)
           );
+
           percentageDisplay.textContent = `${percentage}%`;
           percentageBar.style.width = `${percentage}%`;
           percentageBar.className = `h-4 rounded-full percentage-bar ${
             percentage >= 50 ? "bg-green-500" : "bg-blue-600"
           }`;
         }
+        // --- END UPDATED FUNCTION ---
 
         function updateLyricsPreview() {
           let finalLyrics = "";
@@ -531,7 +575,6 @@ It repeats all the time
 
         async function handleCopyLyrics() {
           if (!navigator.clipboard) {
-            // Fallback for insecure contexts (like file://)
             try {
               lyricsPreview.select();
               document.execCommand("copy");
@@ -558,21 +601,14 @@ It repeats all the time
           }
         }
 
-        // --- UPDATED FUNCTION ---
         function handleSaveLyrics() {
-          // 1. Get Human-Edited Lyrics
           const humanLyrics = lyricsPreview.value;
-
-          // 2. Get Percentage Changed
           const percentage = percentageDisplay.textContent;
-
-          // 3. Reconstruct Original Lyrics from the data object
           let originalLyricsString = "";
           const sectionTitles = Object.keys(originalLyricsData);
           sectionTitles.forEach((sectionTitle, sectionIndex) => {
             originalLyricsString += sectionTitle + "\n";
             const lines = originalLyricsData[sectionTitle];
-            // Use Object.values to get lines in the order they were added
             Object.values(lines).forEach((lineData) => {
               originalLyricsString += lineData.text + "\n";
             });
@@ -581,7 +617,6 @@ It repeats all the time
             }
           });
 
-          // 4. Combine all content into a single string for the file
           const fileContent = `=====================================
 == HUMAN-EDITED LYRICS ==
 =====================================
@@ -590,27 +625,25 @@ It repeats all the time
 ${humanLyrics}
 
 =====================================
-== ORIGINAL AI LYRICS ==
+== ORIGINAL LYRICS (WITH SOURCE) ==
 =====================================
 
 ${originalLyricsString.trim()}
 `;
 
-          // 5. Create Blob and trigger download
           const blob = new Blob([fileContent], {
             type: "text/plain;charset=utf-8",
           });
           const link = document.createElement("a");
           const url = URL.createObjectURL(blob);
           link.href = url;
-          link.download = "ai_collaboration_proof.txt"; // New, more descriptive filename
+          link.download = "ai_collaboration_proof.txt";
           link.style.visibility = "hidden";
           document.body.appendChild(link);
           link.click();
           document.body.removeChild(link);
           URL.revokeObjectURL(url);
         }
-        // --- END OF UPDATED FUNCTION ---
 
         function handleReplaceAll() {
           const findText = findInput.value;
@@ -623,19 +656,11 @@ ${originalLyricsString.trim()}
 
           let replacementCount = 0;
           const allInputs = lyricsEditor.querySelectorAll('input[type="text"]');
-
-          // --- FIX 1: Correct Regex Constructor ---
-          // This correctly escapes special regex characters for the "find" text
           const regex = new RegExp(
             findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
             "gi"
           );
-
-          // We must iterate over a static array, as syncing can
-          // cause a complex loop if we iterate and modify live inputs.
           const inputsToChange = [];
-
-          // Pass 1: Find all inputs that need direct changes
           allInputs.forEach((input) => {
             const originalValue = input.value;
             const newValue = originalValue.replace(regex, replaceText);
@@ -643,24 +668,14 @@ ${originalLyricsString.trim()}
               inputsToChange.push({ input, newValue, originalValue });
             }
           });
-
-          // Pass 2: Apply changes and handle syncing
-          // We use a Map to ensure each input is only updated once to its final value
           const finalChanges = new Map();
-
           inputsToChange.forEach(({ input, newValue, originalValue }) => {
-            // Add the direct change
             finalChanges.set(input, newValue);
-
-            // --- FIX 2: Use correct sync logic ---
             const checkbox = input.parentElement.querySelector(
               'input[type="checkbox"]'
             );
-
-            // If its sync box is checked, find all its partners and add them to the change list
             if (checkbox && checkbox.checked) {
-              const originalTextKey = input.dataset.original; // The "master" original text
-
+              const originalTextKey = input.dataset.original;
               allInputs.forEach((targetInput) => {
                 const targetCheckbox = targetInput.parentElement.querySelector(
                   'input[type="checkbox"]'
@@ -670,20 +685,15 @@ ${originalLyricsString.trim()}
                   targetCheckbox &&
                   targetCheckbox.checked
                 ) {
-                  // This line should also be synced to the new value
                   finalChanges.set(targetInput, newValue);
                 }
               });
             }
-
-            // Count direct replacements
             const matches = originalValue.match(regex);
             if (matches) {
               replacementCount += matches.length;
             }
           });
-
-          // Pass 3: Apply all changes to the DOM
           finalChanges.forEach((newValue, input) => {
             input.value = newValue;
             input.classList.toggle(
@@ -691,7 +701,6 @@ ${originalLyricsString.trim()}
               input.value !== input.dataset.original
             );
           });
-          // --- End of Logic Fix ---
 
           updatePercentage();
           updateLyricsPreview();
@@ -704,7 +713,6 @@ ${originalLyricsString.trim()}
             replaceCount.textContent = `No matches found for "${findText}".`;
           }
 
-          // Clear the message after 3 seconds
           setTimeout(() => {
             replaceCount.textContent = "";
           }, 3000);
