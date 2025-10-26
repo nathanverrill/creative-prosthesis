@@ -3,15 +3,16 @@ import yaml
 import asyncio
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Literal
 import traceback
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate, SystemMessagePromptTemplate, HumanMessagePromptTemplate
+from langchain_core.output_parsers import StrOutputParser, JsonOutputParser
+import json
 
 # --- Import modular components ---
 from .tools.search import get_f1_results_async
@@ -83,7 +84,6 @@ def get_mood_instruction(mood: str) -> str:
 # --- FastAPI App Initialization ---
 app = FastAPI(title="F1 Songwriting Agent")
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -100,9 +100,14 @@ else:
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # --- Request/Response Models ---
+class LyricLine(BaseModel):
+    line: str = Field(..., description="The text of the lyric line.")
+    source: Literal["human", "machine"] = Field(..., description="The origin of the line.")
+
 class SongRequest(BaseModel):
     theme: str
     mood: str = DEFAULT_MOOD
+    draft_lyrics: List[str] = []
 
 class SongResponse(BaseModel):
     theme: str
@@ -125,7 +130,17 @@ async def read_index():
 async def generate_song_flow(request: SongRequest):
     current_mood = request.mood if request.mood else DEFAULT_MOOD
     print(f"\n--- Starting Generation for theme: '{request.theme}' with MOOD: {current_mood} ---")
-    current_state = {"theme": request.theme, "mood": current_mood}
+    
+    structured_draft: List[LyricLine] = [
+        LyricLine(line=line_text, source="human") 
+        for line_text in request.draft_lyrics
+    ]
+
+    current_state = {
+        "theme": request.theme, 
+        "mood": current_mood,
+        "draft_lyrics": structured_draft
+    }
     steps_run = []
     results_log = {}
 
@@ -143,59 +158,141 @@ async def generate_song_flow(request: SongRequest):
             step_input = {}
             if step_name == "get_f1_results":
                 pass
+            
             elif step_name == "run_songwriter":
                 f1_info = current_state.get("f1_info")
                 if not f1_info: raise HTTPException(status_code=500, detail="State error: 'f1_info' missing.")
-                step_input = {"theme": current_state["theme"], "race_info": f1_info}
+                draft_lyrics_json = [L.model_dump() for L in current_state.get("draft_lyrics", [])]
+                step_input = {
+                    "theme": current_state["theme"], 
+                    "race_info": f1_info,
+                    "draft_lyrics": json.dumps(draft_lyrics_json)
+                }
+
             elif step_name == "run_carlin_critic":
-                lyrics_content = current_state.get("lyrics")
+                lyrics_content: List[LyricLine] = current_state.get("lyrics")
                 if not lyrics_content: raise HTTPException(status_code=500, detail="State error: 'lyrics' missing.")
-                step_input = {"song_lyrics": lyrics_content}
+                lyrics_string = "\n".join([L.line for L in lyrics_content])
+                step_input = {"song_lyrics": lyrics_string}
+
             elif step_name == "run_refiner":
-                original_lyrics = current_state.get("lyrics")
+                original_lyrics: List[LyricLine] = current_state.get("lyrics")
                 critique = current_state.get("carlin_critique")
                 if not original_lyrics: raise HTTPException(status_code=500, detail="State error: 'lyrics' missing.")
                 if not critique: raise HTTPException(status_code=500, detail="State error: 'carlin_critique' missing.")
-                step_input = {"original_lyrics": original_lyrics, "critique": critique}
+                original_lyrics_json = [L.model_dump() for L in original_lyrics]
+                step_input = {
+                    "original_lyrics": json.dumps(original_lyrics_json),
+                    "critique": critique
+                }
 
             step_output = None
             try:
                 if asyncio.iscoroutinefunction(base_action):
                     step_output = await base_action()
+                
                 elif hasattr(base_action, 'ainvoke'):
-                    mood_instruction = get_mood_instruction(current_mood)
-                    if mood_instruction and hasattr(base_action, 'prompt'):
-                        original_messages = base_action.prompt.messages
-                        new_messages = []
-                        system_prompt_found = False
-                        for msg in original_messages:
-                            if msg.type == 'system':
-                                modified_content = msg.content + mood_instruction
-                                new_messages.append((msg.type, modified_content))
-                                system_prompt_found = True
-                            else:
-                                template = getattr(getattr(msg, 'prompt', None), 'template', str(msg))
-                                new_messages.append((msg.type, template))
-                        if not system_prompt_found:
-                             new_messages.insert(0, ("system", mood_instruction.strip()))
-                        temp_prompt = ChatPromptTemplate.from_messages(new_messages)
-                        if hasattr(base_action, 'middle') and len(base_action.middle) >= 2:
-                            llm_component = base_action.middle[-2]
-                            parser_component = base_action.middle[-1]
-                            temp_chain = temp_prompt | llm_component | parser_component
-                        else:
-                            temp_chain = temp_prompt | base_llm | StrOutputParser()
-                        step_output = await temp_chain.ainvoke(step_input)
-                    else:
+                    
+                    is_standard_chain = (
+                        hasattr(base_action, 'first') and
+                        hasattr(base_action, 'middle') and   
+                        len(base_action.middle) >= 1 and
+                        hasattr(base_action, 'last')
+                    )
+
+                    if not is_standard_chain:
                         step_output = await base_action.ainvoke(step_input)
+                    
+                    else:
+                        prompt_to_use = base_action.first
+                        llm_component = base_action.middle[-1]
+                        parser_to_use = base_action.last
+                        
+                        if step_name == "run_songwriter":
+                            json_parser = JsonOutputParser(pydantic_object=List[LyricLine])
+                            songwriter_prompt_msgs = [
+                                ("system", 
+                                 "You are a songwriter. Your task is to complete a song based on a theme and race info. "
+                                 "You will be given existing lines written by a human as a JSON string. You MUST include these lines. "
+                                 "Your final output must be a JSON array of objects, where each object has a 'line' (string) and a 'source' (either 'human' or 'machine').\n"
+                                 "Rules:\n"
+                                 "1. Preserve all lines with `source: 'human'` exactly as they are from the input.\n"
+                                 "2. Generate new lines with `source: 'machine'` to build the song around the human lines.\n"
+                                 "3. Output ONLY the valid JSON array."),
+                                ("human", 
+                                 "Theme: {theme}\n"
+                                 "Race Info: {race_info}\n"
+                                 "Human Lines (JSON): {draft_lyrics}\n\n"
+                                 "Your JSON Output:")
+                            ]
+                            prompt_to_use = ChatPromptTemplate.from_messages(songwriter_prompt_msgs)
+                            parser_to_use = json_parser
+                        
+                        elif step_name == "run_refiner":
+                            json_parser = JsonOutputParser(pydantic_object=List[LyricLine])
+                            refiner_prompt_msgs = [
+                                ("system",
+                                 "You are a lyric refiner. Review the following song (as a JSON string) and a critique. "
+                                 "Your task is to revise the song. "
+                                 "Your final output must be a JSON array of objects, just like the input.\n"
+                                 "Rules:\n"
+                                 "1. You MUST NOT modify, delete, or re-order any line where `source` is 'human'.\n"
+                                 "2. You MAY revise, delete, or add new lines where `source` is 'machine' based on the critique.\n"
+                                 "3. All new lines you write must have `source: 'machine'`.\n"
+                                 "4. Output ONLY the valid JSON array."),
+                                ("human",
+                                 "Original Song (JSON): {original_lyrics}\n"
+                                 "Critique: {critique}\n\n"
+                                 "Your Refined JSON Output:")
+                            ]
+                            prompt_to_use = ChatPromptTemplate.from_messages(refiner_prompt_msgs)
+                            parser_to_use = json_parser
+                        
+                        mood_instruction = get_mood_instruction(current_mood)
+                        if mood_instruction:
+                            new_messages = []
+                            system_prompt_found = False
+
+                            for msg_template in prompt_to_use.messages:
+                                template_content = msg_template.prompt.template
+                                
+                                if isinstance(msg_template, SystemMessagePromptTemplate):
+                                    modified_content = template_content + mood_instruction
+                                    new_messages.append(("system", modified_content))
+                                    system_prompt_found = True
+                                elif isinstance(msg_template, HumanMessagePromptTemplate):
+                                    new_messages.append(("human", template_content))
+                                else:
+                                    role = msg_template.__class__.__name__.replace("MessagePromptTemplate", "").lower()
+                                    new_messages.append((role, template_content))
+
+                            if not system_prompt_found:
+                                 new_messages.insert(0, ("system", mood_instruction.strip()))
+                            
+                            prompt_to_use = ChatPromptTemplate.from_messages(new_messages)
+                        
+                        temp_chain = prompt_to_use | llm_component | parser_to_use
+                        step_output = await temp_chain.ainvoke(step_input)
+                        if (step_name == "run_songwriter" or step_name == "run_refiner") and isinstance(step_output, list):
+                            try:
+                                # This converts [ {'line': '...', 'source': '...'} ] 
+                                # into [ LyricLine(line='...', source='...') ]
+                                step_output = [LyricLine(**item) for item in step_output]
+                            except Exception as e:
+                                print(f"!!! Error casting output to List[LyricLine]: {e} !!!")
+                                traceback.print_exc()
+                                raise HTTPException(status_code=500, detail=f"Failed to parse LLM output for step {step_name}")                        
+
                 elif hasattr(base_action, 'invoke'):
                     step_output = base_action.invoke(step_input)
                 elif callable(base_action):
                     step_output = base_action(**step_input if step_input else {})
                 else:
                     raise TypeError(f"Action '{step_name}' is not awaitable, invokable, or callable.")
+            
             except Exception as invoke_error:
                 print(f"!!! Error executing step '{step_name}': {invoke_error} !!!")
+                traceback.print_exc()
                 raise HTTPException(status_code=500, detail=f"Error executing step '{step_name}': {str(invoke_error)}")
 
             if step_output is None:

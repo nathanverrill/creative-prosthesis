@@ -9,3 +9,24 @@ Band can be the multi-hats
 And that includes the researcher / and fact checker
 
 Use gemini batch api for the parallel brainstorm?
+
+
+Example request
+{
+  "theme": "nacho libre",
+  "mood": "chipper",
+  "draft_lyrics": ["macho macho man, nacho nacho libre", "wonder how much I'll win by", "shit was on rails, thought I was gonna fly","in sync millennium, bye bye bye"]
+}
+
+Example structure
+
+{
+  "theme": "lucha libre",
+  "mood": "asshole",
+  "draft_lyrics": [
+    "macho macho man, nacho nacho libre",
+    "wonder how much I'll win by.",
+    "shit was on rails, thought I was gonna fly",
+    "in sync millennium, bye bye bye"
+  ]
+}
