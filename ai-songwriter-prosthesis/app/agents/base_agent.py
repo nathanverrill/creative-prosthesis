@@ -14,10 +14,10 @@ from openinference.instrumentation.langchain import LangChainInstrumentor
 tracer_provider = register()  # Configures Phoenix as OTel exporter
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-# Model mapping for dynamic loading (creative vs. research tasks)
+# Model mapping for dynamic loading (creative vs. research tasks) - FIXED: Swapped for better specialization
 MODEL_MAP = {
-    "creative": "mistral-nemo:12b",  # Witty, satirical for drafting/brainstorming
-    "research": "llama3.1:8b"        # Precise, low-hallucination for facts/critique
+    "creative": "llama3.1:8b",      # High creativity/humor for drafting/brainstorming
+    "research": "mistral-nemo:12b"  # Precise, low-hallucination for facts/critique
 }
 
 class BaseAgent:

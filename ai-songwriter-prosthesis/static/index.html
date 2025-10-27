@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 Lyric Editor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      body {
+        font-family: "Inter", sans-serif;
+      }
+      .loader {
+        border: 4px solid #f3f3f3;
+        border-top: 4px solid #3498db;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+        margin: 20px auto;
+      }
+      @keyframes spin {
+        0% {
+          transform: rotate(0deg);
+        }
+        100% {
+          transform: rotate(360deg);
+        }
+      }
+      input[type="text"] {
+        transition: background-color 0.3s ease;
+      }
+      input[type="text"].changed {
+        background-color: #fef9c3;
+      }
+      .percentage-bar-bg {
+        background-color: #e5e7eb;
+      }
+      .percentage-bar {
+        background-color: #3b82f6;
+        transition: width 0.5s ease-in-out;
+      }
+      .goal-marker {
+        position: absolute;
+        top: -5px;
+        bottom: -5px;
+        width: 2px;
+        background-color: #ef4444;
+      }
+      /* Updated grid: Original text (with badge) | Editable input | Sync checkbox */
+      .lyric-row {
+        display: grid;
+        grid-template-columns: 1fr 1fr auto;
+        gap: 1rem;
+        align-items: center;
+      }
+      .original-lyric-container {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        padding: 0.5rem;
+        text-sm text-gray-700 bg-gray-100 rounded-md border border-gray-300;
+      }
+      .source-badge {
+        font-size: 0.7rem;
+        font-weight: bold;
+        padding: 2px 6px;
+        border-radius: 9999px;
+        align-self: flex-start;
+      }
+      .source-human {
+        background-color: #d1fae5; /* green-100 */
+        color: #065f46; /* green-800 */
+      }
+      .source-machine {
+        background-color: #dbeafe; /* blue-100 */
+        color: #1e40af; /* blue-800 */
+      }
+      .copy-feedback {
+        opacity: 0;
+        transition: opacity 0.3s ease-in-out;
+      }
+      .copy-feedback.show {
+        opacity: 1;
+      }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white p-6 md:p-8 rounded-lg shadow-xl w-full max-w-6xl">
+      <h1 class="text-2xl md:text-3xl font-bold text-center mb-6 text-gray-800">
+        F1 Lyric Editor
+      </h1>
+
+      <form id="theme-form" class="mb-6">
+        <label
+          for="theme-input"
+          class="block text-sm font-medium text-gray-700 mb-1"
+          >Enter Song Theme:</label
+        >
+        <div class="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text"
+            id="theme-input"
+            name="theme"
+            class="flex-grow p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+            placeholder="e.g., Lando Norris finally wins"
+            required
+          />
+          <button
+            type="submit"
+            class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-5 rounded-md shadow-sm transition duration-150 ease-in-out"
+          >
+            Generate Lyrics
+          </button>
+        </div>
+      </form>
+
+      <form id="draft-form" class="mb-6">
+        <label
+          for="draft-input"
+          class="block text-sm font-medium text-gray-700 mb-1"
+          >Enter Draft Lyrics (Optional):</label
+        >
+        <textarea
+          id="draft-input"
+          rows="4"
+          class="w-full p-3 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+          placeholder="Enter one lyric per line...&#10;These will be marked 'Human'&#10;And locked into the song."
+        ></textarea>
+      </form>
+
+      <div
+        id="search-replace-area"
+        class="hidden mb-6 p-4 bg-purple-50 rounded-lg border border-purple-200"
+      >
+        <h2 class="text-lg font-semibold mb-3 text-gray-800">
+          Search & Replace
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <input
+            type="text"
+            id="find-input"
+            class="p-3 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+            placeholder="Find text..."
+          />
+          <input
+            type="text"
+            id="replace-input"
+            class="p-3 border border-gray-300 rounded-md shadow-sm focus:ring-purple-500 focus:border-purple-500"
+            placeholder="Replace with..."
+          />
+          <button
+            id="replace-all-button"
+            class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-5 rounded-md shadow-sm transition duration-150 ease-in-out"
+          >
+            Replace All
+          </button>
+        </div>
+        <p class="text-xs text-gray-600 mt-2">
+          <span id="replace-count" class="font-semibold"></span>
+        </p>
+      </div>
+
+      <div id="loading" class="hidden text-center my-6">
+        <div class="loader"></div>
+        <p class="text-gray-600">Generating initial draft...</p>
+      </div>
+
+      <div
+        id="error-message"
+        class="hidden bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4"
+        role="alert"
+      >
+        <strong class="font-bold">Error!</strong>
+        <span class="block sm:inline"
+          >Could not generate lyrics. Please try again.</span
+        >
+        <pre id="error-details" class="mt-2 text-xs whitespace-pre-wrap"></pre>
+      </div>
+
+      <div id="results-area" class="hidden">
+        <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <h2 class="text-xl font-semibold mb-3 text-gray-800">Edit Lyrics</h2>
+          <p class="text-sm text-gray-600 mb-4">
+            Modify the generated lyrics below. Your goal is to change at least
+            50% of the words. Check the box next to a line to sync changes to
+            all matching lines.
+          </p>
+          <div class="text-center mb-4">
+            <span
+              class="text-4xl font-bold text-blue-700"
+              id="percentage-display"
+              >0%</span
+            >
+            <span class="text-gray-600"> Human Edited</span>
+          </div>
+          <div class="relative w-full h-4 rounded-full percentage-bar-bg mb-4">
+            <div
+              id="percentage-bar"
+              class="h-4 rounded-full percentage-bar"
+              style="width: 0%"
+            ></div>
+            <div class="goal-marker" style="left: 50%"></div>
+          </div>
+        </div>
+        <div id="lyrics-editor" class="space-y-6 mb-6"></div>
+
+        <div class="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-lg font-semibold text-gray-800">Copy Lyrics</h3>
+            <button
+              id="copy-button"
+              class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-4 rounded-md shadow-sm transition duration-150 ease-in-out"
+            >
+              Copy to Clipboard
+            </button>
+          </div>
+          <span id="copy-feedback" class="text-sm text-green-600 copy-feedback"
+            >Copied!</span
+          >
+          <textarea
+            id="lyrics-preview"
+            readonly
+            class="w-full h-48 p-3 border border-gray-300 rounded-md text-sm bg-white font-mono resize-none"
+            placeholder="Your edited lyrics will appear here..."
+          ></textarea>
+        </div>
+
+        <div class="text-center">
+          <button
+            id="save-button"
+            class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-md shadow-sm transition duration-150 ease-in-out"
+          >
+            Save Edited Lyrics (.txt)
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      document.addEventListener("DOMContentLoaded", (event) => {
+        const themeForm = document.getElementById("theme-form");
+        const draftForm = document.getElementById("draft-form"); // Added draft form
+        const draftInput = document.getElementById("draft-input"); // Added draft input
+        const loadingDiv = document.getElementById("loading");
+        const resultsArea = document.getElementById("results-area");
+        const lyricsEditor = document.getElementById("lyrics-editor");
+        const percentageDisplay = document.getElementById("percentage-display");
+        const percentageBar = document.getElementById("percentage-bar");
+        const saveButton = document.getElementById("save-button");
+        const copyButton = document.getElementById("copy-button");
+        const lyricsPreview = document.getElementById("lyrics-preview");
+        const copyFeedback = document.getElementById("copy-feedback");
+        const errorMessageDiv = document.getElementById("error-message");
+        const errorDetailsPre = document.getElementById("error-details");
+        const searchReplaceArea = document.getElementById(
+          "search-replace-area"
+        );
+        const findInput = document.getElementById("find-input");
+        const replaceInput = document.getElementById("replace-input");
+        const replaceAllButton = document.getElementById("replace-all-button");
+        const replaceCount = document.getElementById("replace-count");
+
+        let originalLyricsData = {};
+        let totalWords = 0; // <-- UPDATED
+        let initialHumanWords = 0; // <-- ADDED
+
+        themeForm.addEventListener("submit", handleThemeSubmit);
+        saveButton.addEventListener("click", handleSaveLyrics);
+        copyButton.addEventListener("click", handleCopyLyrics);
+        replaceAllButton.addEventListener("click", handleReplaceAll);
+
+        async function handleThemeSubmit(event) {
+          event.preventDefault();
+          errorMessageDiv.classList.add("hidden");
+          const themeInput = document.getElementById("theme-input");
+          const theme = themeInput.value.trim();
+          if (!theme) return;
+
+          // Get draft lyrics
+          const draftLyrics = draftInput.value
+            .split("\n")
+            .filter((line) => line.trim() !== "");
+
+          themeForm.classList.add("hidden");
+          draftForm.classList.add("hidden"); // Hide draft form
+          loadingDiv.classList.remove("hidden");
+          resultsArea.classList.add("hidden");
+
+          try {
+            // Updated requestBody
+            const requestBody = {
+              theme: theme,
+              mood: "normal",
+              draft_lyrics: draftLyrics,
+            };
+
+            const response = await fetch("/generate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(requestBody),
+            });
+
+            loadingDiv.classList.add("hidden");
+
+            if (!response.ok) {
+              let errorData = `HTTP status: ${response.status}`;
+              try {
+                const errorJson = await response.json();
+                errorData += `\nDetails: ${JSON.stringify(
+                  errorJson.detail || errorJson,
+                  null,
+                  2
+                )}`;
+              } catch (e) {
+                errorData += `\nCould not parse error response.`;
+              }
+              throw new Error(errorData);
+            }
+
+            const data = await response.json();
+
+            // --- UPDATED LOGIC ---
+            // Use the new data.lyrics_by_section
+            const sections = data.lyrics_by_section;
+            if (!sections || sections.length === 0) {
+              throw new Error("No 'lyrics_by_section' found in the response.");
+            }
+
+            originalLyricsData = parseAndStoreLyrics(sections);
+            // --- END UPDATED LOGIC ---
+
+            // --- NEW: Calculate initial word counts ---
+            totalWords = 0;
+            initialHumanWords = 0;
+            for (const s in originalLyricsData) {
+              for (const l in originalLyricsData[s]) {
+                const line = originalLyricsData[s][l];
+                const wordCount = line.words.length;
+                totalWords += wordCount;
+                if (line.source === "human") {
+                  initialHumanWords += wordCount;
+                }
+              }
+            }
+            // --- END NEW ---
+
+            displayLyricsEditor(originalLyricsData);
+            resultsArea.classList.remove("hidden");
+            searchReplaceArea.classList.remove("hidden");
+            updatePercentage();
+            updateLyricsPreview();
+          } catch (error) {
+            console.error("Error generating lyrics:", error);
+            loadingDiv.classList.add("hidden");
+            errorMessageDiv.classList.remove("hidden");
+            errorDetailsPre.textContent = error.message;
+            themeForm.classList.remove("hidden");
+            draftForm.classList.remove("hidden"); // Show draft form again on error
+            resultsArea.classList.add("hidden");
+          }
+        }
+
+        // --- UPDATED FUNCTION ---
+        // Parses the new API response structure: List[UILyricSection]
+        function parseAndStoreLyrics(sections) {
+          const parsedData = {};
+
+          sections.forEach((section) => {
+            const sectionTitle = section.section; // e.g., "<verse 1>"
+            if (!parsedData[sectionTitle]) {
+              parsedData[sectionTitle] = {};
+            }
+
+            section.lines.forEach((line, index) => {
+              const words = line.line.split(/\s+/).filter(Boolean);
+              parsedData[sectionTitle][index] = {
+                text: line.line,
+                words: words,
+                source: line.source, // "human" or "machine"
+              };
+            });
+          });
+
+          return parsedData;
+        }
+        // --- END UPDATED FUNCTION ---
+
+        function syncMatchingLines(originalText, newValue) {
+          const allInputs = lyricsEditor.querySelectorAll('input[type="text"]');
+          allInputs.forEach((input) => {
+            const checkbox = input.parentElement.querySelector(
+              'input[type="checkbox"]'
+            );
+            if (
+              input.dataset.original === originalText &&
+              checkbox &&
+              checkbox.checked
+            ) {
+              input.value = newValue;
+              input.classList.toggle(
+                "changed",
+                input.value !== input.dataset.original
+              );
+            }
+          });
+        }
+
+        // --- UPDATED FUNCTION ---
+        // Now displays the 'source' badge and adds data-source to input
+        function displayLyricsEditor(parsedLyrics) {
+          lyricsEditor.innerHTML = "";
+          Object.entries(parsedLyrics).forEach(([sectionTitle, lines]) => {
+            const sectionDiv = document.createElement("div");
+            sectionDiv.className =
+              "mb-4 p-4 border border-gray-200 rounded-md bg-gray-50";
+            sectionDiv.dataset.sectionTitle = sectionTitle;
+            const titleH3 = document.createElement("h3");
+            titleH3.textContent = sectionTitle;
+            titleH3.className = "text-lg font-semibold mb-3 text-gray-700";
+            sectionDiv.appendChild(titleH3);
+
+            Object.values(lines).forEach((lineData, lineIndex) => {
+              const lineDiv = document.createElement("div");
+              lineDiv.className = "lyric-row mb-2";
+
+              // Left side - original lyrics (read-only) + source badge
+              const originalDiv = document.createElement("div");
+              originalDiv.className = "original-lyric-container";
+
+              const sourceBadge = document.createElement("span");
+              sourceBadge.className = "source-badge";
+              if (lineData.source === "human") {
+                sourceBadge.textContent = "Human";
+                sourceBadge.classList.add("source-human");
+              } else {
+                sourceBadge.textContent = "Machine";
+                sourceBadge.classList.add("source-machine");
+              }
+
+              const originalText = document.createElement("span");
+              originalText.textContent = lineData.text;
+
+              originalDiv.appendChild(sourceBadge);
+              originalDiv.appendChild(originalText);
+
+              // Middle - editable input
+              const input = document.createElement("input");
+              input.type = "text";
+              input.value = lineData.text;
+              input.dataset.original = lineData.text;
+              input.dataset.lineIndex = lineIndex;
+              input.dataset.sectionTitle = sectionTitle;
+              input.dataset.source = lineData.source; // <-- ADDED
+              input.className =
+                "p-2 border border-gray-300 rounded-md text-sm focus:ring-blue-500 focus:border-blue-500";
+
+              // Right side - sync checkbox
+              const checkboxWrapper = document.createElement("div");
+              checkboxWrapper.className = "flex items-center justify-center";
+              const checkbox = document.createElement("input");
+              checkbox.type = "checkbox";
+              checkbox.checked = true;
+              checkbox.dataset.lineIndex = lineIndex;
+              checkbox.dataset.sectionTitle = sectionTitle;
+              checkbox.className =
+                "w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500";
+              checkbox.title = "Sync changes to matching lines";
+
+              input.addEventListener("input", (e) => {
+                const syncEnabled = checkbox.checked;
+                if (syncEnabled) {
+                  syncMatchingLines(input.dataset.original, e.target.value);
+                }
+                updatePercentage();
+                updateLyricsPreview();
+                input.classList.toggle(
+                  "changed",
+                  input.value !== input.dataset.original
+                );
+              });
+
+              checkboxWrapper.appendChild(checkbox);
+              lineDiv.appendChild(originalDiv);
+              lineDiv.appendChild(input);
+              lineDiv.appendChild(checkboxWrapper);
+              sectionDiv.appendChild(lineDiv);
+            });
+            lyricsEditor.appendChild(sectionDiv);
+          });
+        }
+        // --- END UPDATED FUNCTION ---
+
+        // --- UPDATED FUNCTION ---
+        // Calculates percentage based on initial human lines + edited machine lines
+        function updatePercentage() {
+          if (totalWords === 0) {
+            percentageDisplay.textContent = "0%";
+            percentageBar.style.width = "0%";
+            return;
+          }
+
+          let editedMachineWordsCount = 0;
+          const inputs = lyricsEditor.querySelectorAll('input[type="text"]');
+
+          inputs.forEach((input) => {
+            // Only check for edits on lines that were *originally* 'machine'
+            if (input.dataset.source === "machine") {
+              const originalText = input.getAttribute("data-original");
+              const currentText = input.value;
+
+              if (currentText !== originalText) {
+                const originalWords = originalText.split(/\s+/).filter(Boolean);
+                const currentWords = currentText.split(/\s+/).filter(Boolean);
+                const minLen = Math.min(
+                  originalWords.length,
+                  currentWords.length
+                );
+                let changedWordsInThisLine = 0;
+                for (let i = 0; i < minLen; i++) {
+                  if (originalWords[i] !== currentWords[i]) {
+                    changedWordsInThisLine++;
+                  }
+                }
+                changedWordsInThisLine += Math.abs(
+                  originalWords.length - currentWords.length
+                );
+                editedMachineWordsCount += changedWordsInThisLine;
+              }
+            }
+          });
+
+          // Total "human" words = words from initially human lines + edited words from machine lines
+          const totalHumanWords = initialHumanWords + editedMachineWordsCount;
+
+          const percentage = Math.min(
+            100,
+            Math.round((totalHumanWords / totalWords) * 100)
+          );
+
+          percentageDisplay.textContent = `${percentage}%`;
+          percentageBar.style.width = `${percentage}%`;
+          percentageBar.className = `h-4 rounded-full percentage-bar ${
+            percentage >= 50 ? "bg-green-500" : "bg-blue-600"
+          }`;
+        }
+        // --- END UPDATED FUNCTION ---
+
+        function updateLyricsPreview() {
+          let finalLyrics = "";
+          const sections = lyricsEditor.querySelectorAll(
+            "div[data-section-title]"
+          );
+          sections.forEach((sectionDiv, sectionIndex) => {
+            const title = sectionDiv.getAttribute("data-section-title");
+            finalLyrics += title + "\n";
+            const inputs = sectionDiv.querySelectorAll('input[type="text"]');
+            inputs.forEach((input) => {
+              finalLyrics += input.value + "\n";
+            });
+            if (sectionIndex < sections.length - 1) {
+              finalLyrics += "\n";
+            }
+          });
+          lyricsPreview.value = finalLyrics.trim();
+        }
+
+        async function handleCopyLyrics() {
+          if (!navigator.clipboard) {
+            try {
+              lyricsPreview.select();
+              document.execCommand("copy");
+              copyFeedback.classList.add("show");
+              setTimeout(() => {
+                copyFeedback.classList.remove("show");
+              }, 2000);
+            } catch (err) {
+              console.error("Fallback copy failed:", err);
+              alert("Failed to copy to clipboard.");
+            }
+            return;
+          }
+
+          try {
+            await navigator.clipboard.writeText(lyricsPreview.value);
+            copyFeedback.classList.add("show");
+            setTimeout(() => {
+              copyFeedback.classList.remove("show");
+            }, 2000);
+          } catch (err) {
+            console.error("Failed to copy:", err);
+            alert("Failed to copy to clipboard");
+          }
+        }
+
+        function handleSaveLyrics() {
+          const humanLyrics = lyricsPreview.value;
+          const percentage = percentageDisplay.textContent;
+          let originalLyricsString = "";
+          const sectionTitles = Object.keys(originalLyricsData);
+          sectionTitles.forEach((sectionTitle, sectionIndex) => {
+            originalLyricsString += sectionTitle + "\n";
+            const lines = originalLyricsData[sectionTitle];
+            Object.values(lines).forEach((lineData) => {
+              originalLyricsString += lineData.text + "\n";
+            });
+            if (sectionIndex < sectionTitles.length - 1) {
+              originalLyricsString += "\n";
+            }
+          });
+
+          const fileContent = `=====================================
+== HUMAN-EDITED LYRICS ==
+=====================================
+(Percentage Changed: ${percentage})
+
+${humanLyrics}
+
+=====================================
+== ORIGINAL LYRICS (WITH SOURCE) ==
+=====================================
+
+${originalLyricsString.trim()}
+`;
+
+          const blob = new Blob([fileContent], {
+            type: "text/plain;charset=utf-8",
+          });
+          const link = document.createElement("a");
+          const url = URL.createObjectURL(blob);
+          link.href = url;
+          link.download = "ai_collaboration_proof.txt";
+          link.style.visibility = "hidden";
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+        }
+
+        function handleReplaceAll() {
+          const findText = findInput.value;
+          const replaceText = replaceInput.value;
+
+          if (!findText) {
+            replaceCount.textContent = "Please enter text to find.";
+            return;
+          }
+
+          let replacementCount = 0;
+          const allInputs = lyricsEditor.querySelectorAll('input[type="text"]');
+          const regex = new RegExp(
+            findText.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+            "gi"
+          );
+          const inputsToChange = [];
+          allInputs.forEach((input) => {
+            const originalValue = input.value;
+            const newValue = originalValue.replace(regex, replaceText);
+            if (newValue !== originalValue) {
+              inputsToChange.push({ input, newValue, originalValue });
+            }
+          });
+          const finalChanges = new Map();
+          inputsToChange.forEach(({ input, newValue, originalValue }) => {
+            finalChanges.set(input, newValue);
+            const checkbox = input.parentElement.querySelector(
+              'input[type="checkbox"]'
+            );
+            if (checkbox && checkbox.checked) {
+              const originalTextKey = input.dataset.original;
+              allInputs.forEach((targetInput) => {
+                const targetCheckbox = targetInput.parentElement.querySelector(
+                  'input[type="checkbox"]'
+                );
+                if (
+                  targetInput.dataset.original === originalTextKey &&
+                  targetCheckbox &&
+                  targetCheckbox.checked
+                ) {
+                  finalChanges.set(targetInput, newValue);
+                }
+              });
+            }
+            const matches = originalValue.match(regex);
+            if (matches) {
+              replacementCount += matches.length;
+            }
+          });
+          finalChanges.forEach((newValue, input) => {
+            input.value = newValue;
+            input.classList.toggle(
+              "changed",
+              input.value !== input.dataset.original
+            );
+          });
+
+          updatePercentage();
+          updateLyricsPreview();
+
+          if (replacementCount > 0) {
+            replaceCount.textContent = `Replaced ${replacementCount} match${
+              replacementCount !== 1 ? "es" : ""
+            }.`;
+          } else {
+            replaceCount.textContent = `No matches found for "${findText}".`;
+          }
+
+          setTimeout(() => {
+            replaceCount.textContent = "";
+          }, 3000);
+        }
+      });
+    </script>
+  </body>
+</html>

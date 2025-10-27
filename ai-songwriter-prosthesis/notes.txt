@@ -85,3 +85,18 @@ docker run -d --name songwriter_test \
   --env RAY_OVERRIDE_NODE_IP=0.0.0.0 \
   --env-file .env \
   songwriter
+
+
+  Provide templated human content same structure as Suno
+  Or provide Suno
+
+Filled in like a madlib
+
+With x number of lines for each section
+
+  Both marked machine / human accordingly
+
+Provide a real quick A-B for the user
+
+Include the model author for each lines
+

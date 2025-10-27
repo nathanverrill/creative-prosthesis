@@ -22,6 +22,7 @@
 # search_tool = SerpAPIWrapper(serpapi_api_key=SERPAPI_API_KEY)  # No 'k' here
 
  # app/utils/llm.py
+# app/utils/llm.py
 
 from langchain_community.utilities import SerpAPIWrapper
 from app.config import SERPAPI_API_KEY  # Only SERP key needed now

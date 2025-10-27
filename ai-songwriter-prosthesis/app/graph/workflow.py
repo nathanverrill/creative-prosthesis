@@ -37,6 +37,8 @@ def build_workflow():
         """Collect feedback from parallel brainstorm agents."""
         feedback = state.get("feedback", [])
         print(f"[AGGREGATE] Collected {len(feedback)} feedback items")
+        # Optional: Sort or prioritize (e.g., positives first)
+        # state["feedback"] = sorted(feedback, key=lambda f: 1 if 'POSITIVE' in f else 0, reverse=True)
         return {}  # State already updated by parallel nodes
     
     workflow.add_node("aggregate_feedback", aggregate_feedback)
@@ -69,6 +71,7 @@ def build_workflow():
         freshness_thresh = thresholds.get("freshness", 0.5)
         humor_thresh = thresholds.get("humor", 0.4)
         
+        # Enhanced logging: Write to file or console for tracing
         print(f"[ROUTER DEBUG] Revision: {current_revision}, Scores: {scores}, QA: {qa_status}")
         
         if current_revision >= 5:
