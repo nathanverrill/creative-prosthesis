@@ -59,3 +59,29 @@ Line number corrections
 Different temps / model settings for the persona types (e.g., facts vs creativity)
 
 
+docker run -d --name songwriter --network=host -p 8000:8000 -p 8265:8265 --shm-size=8g --env RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0 --env-file .env ai-songwriter
+
+  http://localhost:8265 --- Ray Dashboard
+
+
+docker run -d --name ray-head --network=host -p 8266:8265 --shm-size=8g rayproject/ray:2.10.0 ray start --head --dashboard-host=0.0.0.0 --port=10001 --object-manager-port=25343 --dashboard-port=8265
+
+docker stop ray-head && docker rm ray-head
+
+
+docker run -d --name songwriter --network=host -p 8000:8000 -p 8265:8265 --shm-size=8g --env RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0 --env-file .env songwriter
+
+docker run -d --name ray_head -p 6379:6379 -p 8265:8265 --shm-size=8g rayproject/ray:latest-py312 ray start --head --port 6379 --dashboard-port 8265 --object-manager-port 8076 --node-manager-port 8077
+
+
+docker run -d --name songwriter --network=host -p 8008:8000 -p 8265:8265 --shm-size=8g --env RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0 --env-file .env songwriter
+
+
+
+docker run -d --name songwriter_test \
+  -p 8008:8000 -p 8265:8265 \
+  --shm-size=8g \
+  --env RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0 \
+  --env RAY_OVERRIDE_NODE_IP=0.0.0.0 \
+  --env-file .env \
+  songwriter

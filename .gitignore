@@ -209,3 +209,6 @@ ai-songwriter-prosthesis/data/lock
 .gitignore
 ai-songwriter-prosthesis/data/wal/00000000
 ai-songwriter-prosthesis/prometheus-3.7.2.darwin-arm64/prometheus
+.gitignore
+ai-songwriter-prosthesis/prometheus-3.7.2.darwin-arm64/promtool
+ai-songwriter-prosthesis/data/queries.active

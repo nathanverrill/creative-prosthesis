@@ -14,24 +14,41 @@ from openinference.instrumentation.langchain import LangChainInstrumentor
 tracer_provider = register()  # Configures Phoenix as OTel exporter
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
+# Optional: Decorator for Ray remote wrapping (use in workflow.py for non-brainstorm agents if needed)
+def ray_remote_wrapper(num_cpus=1, max_concurrency=1):
+    """Decorator to make an agent Ray-remote compatible (call in workflow.py)."""
+    def decorator(cls):
+        import ray
+        return ray.remote(num_cpus=num_cpus, max_concurrency=max_concurrency)(cls)
+    return decorator
+
+# Model mapping for dynamic loading (creative vs. research tasks)
+MODEL_MAP = {
+    "creative": "mistral-nemo:12b",  # Witty, satirical for drafting/brainstorming
+    "research": "llama3.1:8b"        # Precise, low-hallucination for facts/critique
+}
+
 class BaseAgent:
     """Foundational class for all agents to enforce node signature and centralize config."""
     
-    def __init__(self, agent_name: str, use_tools: bool = False, temperature: float = 0.7):
+    def __init__(self, agent_name: str, task_type: str = "creative", use_tools: bool = False, temperature: float = 0.7):
         self.agent_name = agent_name
+        
+        # Select model based on task_type (loads dynamically in Ollama)
+        model_name = MODEL_MAP.get(task_type, MODEL_MAP["creative"])  # Default to creative
         
         # Create model fresh with temperature in constructor (puts it in options; no bind/kwarg leak)
         if use_tools:
-            # Research: Low temp for factual
+            # Research: Low temp for factual (overrides task_type if needed)
             self.llm = ChatOllama(
-                model="gemma:2b",  # Consistent model
+                model=model_name,
                 base_url=OLLAMA_BASE_URL,
                 temperature=0.2
             )
         else:
             # Creative: Agent-specific temp
             self.llm = ChatOllama(
-                model="gemma:2b",
+                model=model_name,
                 base_url=OLLAMA_BASE_URL,
                 temperature=temperature  # e.g., 0.9 for collaborator, 0.8 for YesAnd
             )
