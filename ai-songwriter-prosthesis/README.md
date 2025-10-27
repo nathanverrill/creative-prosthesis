@@ -97,3 +97,114 @@ If you’re interested in collaborating, attribution, or research citation, plea
 
 > Leclaire, A. (2025). _Creative Prosthesis: AI-Driven Composition and Code-Based Music Generation._  
 > Azro Leclaire LLC (Missouri, USA).
+
+# About
+
+### AI Songwriting Prosthesis: Overview
+
+**What it Does**  
+This application is an AI-powered collaborative songwriting tool that generates over-the-top satirical rap lyrics in the style of The Lonely Island. Users provide an "inspiration" (e.g., "quantum entanglement") and optional human lines; the system researches facts, drafts/revises lyrics blending absurdity, pop culture refs, and crude wit (8-12 syllables/line, AABB rhymes), incorporates feedback, fact-checks for accuracy, and iterates until the output meets quality thresholds for creativity, freshness, humor, and QA—or hits a max of 5 revisions—yielding a structured JSON song (sections like [verse 1], [chorus]).
+
+**How it Does It**  
+It orchestrates a multi-agent workflow:
+
+- **Research**: Gathers 3-5 facts via SERP API for inspiration.
+- **Draft/Revise**: Preserves human lines verbatim while escalating machine-generated content with satirical twists.
+- **Brainstorm**: Runs three parallel agents (YesAnd for positive amps, NoBut for constructive roasts/fixes, NonSequitur for chaotic sparks) to append diverse feedback.
+- **Fact-Check**: Compares draft to facts, flagging issues (PASS/FAIL).
+- **Critique**: Ensembles creative (humor/creativity) and factual (freshness/QA) evals via parallel model calls, scoring 0-1, suggesting tweaks, and issuing verdicts (e.g., "Yes, this is funny as hell and it's factual").
+- **Loop**: Router conditionally revises if scores < thresholds (default: 0.5 creativity/freshness, 0.4 humor) + QA pass. Outputs preserve structure for easy rendering/parsing.
+
+**Architecture**  
+Built on LangGraph's `StateGraph` for orchestration, with a `SongWritingState` TypedDict (e.g., `feedback: Annotated[List[str], add]` for concurrent appends). Nodes are callable agents/functions; edges mix sequential (research → draft → fact-check), parallel (brainstorm branches converge via aggregator), and conditional (post-critique router to END/revise).
+
+- **Models**: Ollama local (Llama3.1:8B for creative agents like Collaborator/YesAnd; Mistral-Nemo:12B for factual like Researcher/Critics) via `ChatOllama`, with task-specific temps (0.1-1.0).
+- **Prompts**: Centralized `PromptManager` dict with few-shots; structured I/O via Pydantic/JsonOutputParser.
+- **Tools/Utils**: SERP via `SerpAPIWrapper`; helpers like `extract_plain_lyrics` for JSON-to-text. Dockerized for M1 Mac, with Phoenix tracing. Total: ~1-2s/cycle on 32GB unified memory.
+
+### How to Change a Prompt in the AI Songwriting App
+
+1. **Locate the File**: Open `app/prompts/song_prompts.py`. Prompts are defined in the `PROMPTS` dict by key (e.g., `"critics_human"`).
+
+2. **Edit the Prompt**:
+
+   - Find the key (e.g., `"critics_human": r"""Your prompt text here."""`).
+   - Modify the string. Use `r"""` for raw strings to handle escapes (e.g., `{{ }}` for literal `{}` in JSON).
+   - Save the file.
+
+3. **Reload in Docker**:
+
+   - Restart the container: `docker restart <container_id>` (or rebuild: `docker build --no-cache .`).
+   - In code, add `import importlib; importlib.reload(app.prompts.song_prompts)` if testing interactively.
+
+4. **Test**:
+   - Run a workflow invoke with sample input: `song_writer_app.invoke({"inspiration": "test", ...})`.
+   - Check logs for the updated prompt in action (e.g., via Phoenix traces).
+   - Isolate:
+     ```python
+     from app.utils.prompt_manager import prompt_manager
+     print(prompt_manager.get_prompt("your_key"))
+     ```
+
+Changes take effect immediately post-reload. For structured outputs, update Pydantic schemas in agents if needed.
+
+### How to Add a New Brainstorm Agent
+
+1. **Define the Agent Class** (in `app/agents/brainstorm.py`):
+
+   - Add: `class NewAgentName(BaseAgent):`
+   - In `__init__`: `super().__init__(agent_name="NewAgentName", task_type="creative" or "research", use_tools=False, temperature=0.X)`
+   - Override `self.llm` if specializing (e.g., `ChatOllama(model="llama3.1:8b", ..., temperature=0.X)`).
+   - In `__call__(self, state: SongWritingState) -> Dict[str, Any]`:
+     - Extract `plain_lyrics = extract_plain_lyrics(state['draft_lyrics'])`
+     - Build chain: `system_prompt = self._get_prompt_template(self.system_prompt_key)`; format human prompt; `chain = ChatPromptTemplate.from_messages([...]) | self.llm`
+     - Try: `response = chain.invoke({})`; `return {"feedback": [f"LABEL: {response.content}"]}`
+     - Except: Return error feedback.
+
+2. **Add Prompts** (in `app/prompts/song_prompts.py`):
+
+   - Add keys: `"newagentname_system": "Your system prompt."`, `"newagentname_human": "Your human template with vars like {draft_lyrics}."`
+
+3. **Integrate into Workflow** (in `app/graph/workflow.py`):
+
+   - After other instantiations: `agent_new = NewAgentName()`
+   - `workflow.add_node("new_node", agent_new)`
+   - Parallel edges: `workflow.add_edge("collaborator", "new_node")`
+   - Convergence: `workflow.add_edge("new_node", "aggregate_feedback")`
+
+4. **Reload & Test**:
+   - Restart Docker container.
+   - Invoke workflow; check logs for new feedback in aggregate (e.g., 4 items now).
+   - Isolate: `agent_new({"draft_lyrics": "test"})` in a script.
+
+This adds parallel execution; state merges via `Annotated[List[str], add]`. For custom logic, extend aggregator.
+
+### How to Add a New Workflow Step (e.g., "Add Profanity")
+
+1. **Define the Step** (new file `app/agents/profanity.py` or in existing):
+
+   - Class: `class ProfanityAgent(BaseAgent):`
+   - `__init__`: `super().__init__(agent_name="Profanity", task_type="creative", temperature=0.8)`; override `self.llm = ChatOllama(model="llama3.1:8b", ..., temperature=0.9)`.
+   - `__call__(self, state: SongWritingState) -> Dict[str, Any]`:
+     - `plain_lyrics = extract_plain_lyrics(state['draft_lyrics'])` (import helper).
+     - Chain: Format prompts (e.g., "Inject crude, satirical profanity: {draft_lyrics}"); `chain = ... | self.llm`; `response = chain.invoke({})`.
+     - Parse response to JSON lines; return `{"draft_lyrics": json.dumps(new_lyrics)}`.
+
+2. **Add Prompts** (in `app/prompts/song_prompts.py`):
+
+   - `"profanity_system": "Amp crude wit: Add escalating profanity, Lonely Island-style (e.g., 'yo mama' twists). Preserve structure."`
+   - `"profanity_human": "Draft: {draft_lyrics}\nProfanify:"`
+
+3. **Integrate into Workflow** (in `app/graph/workflow.py`):
+
+   - Instantiate: `agent_profanity = ProfanityAgent()`
+   - `workflow.add_node("profanity", agent_profanity)`
+   - Edge: e.g., `workflow.add_edge("collaborator", "profanity")`; `workflow.add_edge("profanity", "yes_and")` (adjust for position, e.g., after draft, before brainstorm).
+
+4. **Update State** (if needed, in `app/graph/state.py`): Add keys like `profanity_level: int` with `Annotated` for merging.
+
+5. **Reload & Test**:
+   - Restart Docker.
+   - Invoke: Check logs for new node; verify output has profanity in `draft_lyrics`.
+
+This inserts sequentially; for parallel, add multiple edges/convergence. Extend aggregator if feedback involved.
