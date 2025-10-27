@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+langchain
+langchain-google-genai
+langchain-community
+langchain-ollama
+langgraph
+pydantic
+python-dotenv
+google-search-results
+arize-phoenix
+openinference-instrumentation-langchain  # For LangChain tracing
+opentelemetry-api  # OTel core (auto-pulled, but explicit for safety)
