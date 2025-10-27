@@ -20,16 +20,20 @@ class YesAndAgent(BaseAgent):
             ("system", system_prompt),
             ("human", human_prompt)
         ]) | self.llm
+        
         try:
             response = chain.invoke({})
-            return {"feedback": [f"POSITIVE: {response.content}"]}
+            new_feedback = f"POSITIVE: {response.content}"
+            # Return ONLY the new feedback - operator.add will merge it
+            return {"feedback": [new_feedback]}
+            
         except Exception as e:
-            return {"feedback": [f"POSITIVE: Feedback generation failed - {str(e)}"]}
+            error_feedback = f"POSITIVE: Feedback generation failed - {str(e)}"
+            return {"feedback": [error_feedback]}
 
 # --- 2. AI_NoBut Agent ---
 class NoButAgent(BaseAgent):
     def __init__(self):
-        # Slightly lower temp for more structured, focused critique
         super().__init__(agent_name="NoBut", use_tools=False, temperature=0.6) 
 
     def __call__(self, state: SongWritingState) -> Dict[str, Any]:
@@ -42,29 +46,31 @@ class NoButAgent(BaseAgent):
             ("system", system_prompt),
             ("human", human_prompt)
         ]) | self.llm
+        
         try:
             response = chain.invoke({})
-            return {"feedback": [f"CRITICAL: {response.content}"]}
+            new_feedback = f"CRITICAL: {response.content}"
+            # Return ONLY the new feedback - operator.add will merge it
+            return {"feedback": [new_feedback]}
+            
         except Exception as e:
-            return {"feedback": [f"CRITICAL: Feedback generation failed - {str(e)}"]}
+            error_feedback = f"CRITICAL: Feedback generation failed - {str(e)}"
+            return {"feedback": [error_feedback]}
 
 # --- 3. AI_NonSequitur Agent (Lateral Thinking) ---
 class NonSequiturAgent(BaseAgent):
     
     def __init__(self):
-        # Extremely high temperature (1.0) for maximum random disruption
         super().__init__(agent_name="NonSequitur", use_tools=False, temperature=1.0) 
 
     def __call__(self, state: SongWritingState) -> Dict[str, Any]:
         """Generates a random, unrelated input to spark lateral thinking."""
         
-        # NOTE: You must define 'nonsequitur_system' and 'nonsequitur_human' prompts
         system_prompt = self._get_prompt_template(self.system_prompt_key) 
         human_prompt = self._get_prompt_template(self.human_prompt_key).format(
             current_draft=state['draft_lyrics']
         )
         
-        # Use a simple chain to generate one unrelated concept
         chain = ChatPromptTemplate.from_messages([
             ("system", system_prompt),
             ("human", human_prompt)
@@ -72,8 +78,10 @@ class NonSequiturAgent(BaseAgent):
         
         try:
             response = chain.invoke({})
-            # Label the output clearly so the Collaborator knows it's random
-            non_sequitur_input = f"LATERAL INPUT (Random): {response.content}"
-            return {"feedback": [non_sequitur_input]}  # Appended to the shared feedback list
+            new_feedback = f"LATERAL INPUT (Random): {response.content}"
+            # Return ONLY the new feedback - operator.add will merge it
+            return {"feedback": [new_feedback]}
+            
         except Exception as e:
-            return {"feedback": [f"LATERAL INPUT (Random): Generation failed - {str(e)}"]}
+            error_feedback = f"LATERAL INPUT (Random): Generation failed - {str(e)}"
+            return {"feedback": [error_feedback]}

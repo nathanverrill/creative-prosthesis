@@ -14,14 +14,6 @@ from openinference.instrumentation.langchain import LangChainInstrumentor
 tracer_provider = register()  # Configures Phoenix as OTel exporter
 LangChainInstrumentor().instrument(tracer_provider=tracer_provider)
 
-# Optional: Decorator for Ray remote wrapping (use in workflow.py for non-brainstorm agents if needed)
-def ray_remote_wrapper(num_cpus=1, max_concurrency=1):
-    """Decorator to make an agent Ray-remote compatible (call in workflow.py)."""
-    def decorator(cls):
-        import ray
-        return ray.remote(num_cpus=num_cpus, max_concurrency=max_concurrency)(cls)
-    return decorator
-
 # Model mapping for dynamic loading (creative vs. research tasks)
 MODEL_MAP = {
     "creative": "mistral-nemo:12b",  # Witty, satirical for drafting/brainstorming
