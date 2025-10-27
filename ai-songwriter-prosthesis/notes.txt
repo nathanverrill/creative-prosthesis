@@ -1,3 +1,6 @@
+Using mistral-nemo:12b for creativity
+
+
 Perplexity for the fact
 
 Grok for the writer - make it an agentic rap battle
@@ -59,3 +62,4 @@ Line number corrections
 Different temps / model settings for the persona types (e.g., facts vs creativity)
 
 
+docker run -d --name songwriter --network=host -p 8000:8000 -p 8265:8265 --shm-size=8g --env RAY_ACCEL_ENV_VAR_OVERRIDE_ON_ZERO=0 --env-file .env songwriter
