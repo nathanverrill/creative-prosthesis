@@ -1,16 +1,12 @@
-# ==============================================================================
-# --- app/agents/critics.py ---
-# ==============================================================================
-from app.agents.base_agent import BaseAgent
 from app.graph.state import SongWritingState
+from app.utils.llm import get_llm
+from app.utils.prompt_manager import PromptManager
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel
 from pydantic import BaseModel, Field
 from typing import Dict, Any, List
-from langchain_ollama import ChatOllama
 import json
 
-# --- Pydantic Schema for Structured Output ---
 class CriticScoresOutput(BaseModel):
     """Structured output for the Critics Agent scores."""
     creativity: float = Field(
@@ -31,47 +27,32 @@ class CriticScoresOutput(BaseModel):
     verdict: str = Field(
         description="A concise ensemble verdict like 'Yes, this is funny as hell and it's factual' or 'No, creative but inaccurate—revise.'"
     )
-# --- Helper Function (Copied for local use) ---
-def extract_plain_lyrics_critics(draft_lyrics_json_str: str) -> str:
-    """Extracts a simple, readable string from the structured lyrics JSON."""
-    if not draft_lyrics_json_str:
+
+def extract_plain_lyrics_critics(draft_lyrics: List[dict]) -> str:
+    """Extracts a simple, readable string from the structured lyrics."""
+    if not draft_lyrics or not isinstance(draft_lyrics, list):
         return "No current draft."
     try:
-        lyrics_list = json.loads(draft_lyrics_json_str)
-        return "\n".join([item.get('line', '') for item in lyrics_list if isinstance(item, dict)])
+        return "\n".join([item.get('line', '') for item in draft_lyrics if isinstance(item, dict)])
     except:
-        return draft_lyrics_json_str
-# --- End Helper Function ---
+        return str(draft_lyrics)
 
-
-class CriticsAgent(BaseAgent):
+class CriticsAgent:
     
     def __init__(self):
-        super().__init__(agent_name="Critics", task_type="research", use_tools=False, temperature=0.3)
-        # Override for grounded scoring/QA
-        self.llm = ChatOllama(
-            model="mistral-nemo:12b",
-            base_url="http://host.docker.internal:11434",
-            temperature=0.3
-        )
+        self.creative_llm = get_llm("critic_creative_model")
+        self.factual_llm = get_llm("critic_factual_model")
+        self.synthesizer_llm = get_llm("critic_synthesizer_model")
+        self.llm = self.synthesizer_llm
+        self.prompt_manager = PromptManager()
 
-    def __call__(self, state: SongWritingState) -> Dict[str, Any]:
+    async def __call__(self, state: SongWritingState) -> Dict[str, Any]:
         """Scores Creativity, Freshness, Humor, and provides structured suggestions with ensemble verdict."""
         
-        # 1. Prepare input: Convert JSON to plain text for the critic prompt
         plain_lyrics = extract_plain_lyrics_critics(state['draft_lyrics'])
-        
-        system_prompt = self._get_prompt_template("critics_system")
-        human_prompt_template = self._get_prompt_template("critics_human")
+        topic = state.get('topic', 'No topic provided')
 
-        formatted_human = human_prompt_template.format(
-            draft_lyrics=plain_lyrics,
-            inspiration=state['inspiration']
-        )
-
-        # Ensemble: Parallel creative (humor/creativity) and factual (freshness/QA) evals
-        creative_llm = ChatOllama(model="llama3.1:8b", base_url="http://host.docker.internal:11434", temperature=0.7)
-        factual_llm = ChatOllama(model="mistral-nemo:12b", base_url="http://host.docker.internal:11434", temperature=0.3)
+        formatted_human = f"TOPIC: {topic}\n\nDRAFT LYRICS:\n{plain_lyrics}"
 
         creative_prompt = ChatPromptTemplate.from_messages([
             ("system", "Lonely Island comedian: Score humor (0-1) and creativity (0-1) for satirical escalation and wit."),
@@ -82,14 +63,12 @@ class CriticsAgent(BaseAgent):
             ("human", formatted_human)
         ])
 
-        # Parallel chains
         parallel_eval = RunnableParallel(
-            creative=(creative_prompt | creative_llm),
-            factual=(factual_prompt | factual_llm)
+            creative=(creative_prompt | self.creative_llm),
+            factual=(factual_prompt | self.factual_llm)
         )
-        results = parallel_eval.invoke({})
+        results = await parallel_eval.ainvoke({})
 
-        # Synthesize verdict with factual_llm
         decision_prompt = ChatPromptTemplate.from_messages([
             ("system", """You are a decision-maker. Review creative eval (humor/creativity) and factual eval (freshness/QA).
             Output JSON with scores, fact_check_pass, suggestions (2-3 items), and verdict like: "Yes, this is funny as hell and it's factual" or "No, revise [issue]". Use the schema."""),
@@ -98,9 +77,8 @@ class CriticsAgent(BaseAgent):
 
         critic_chain = decision_prompt | self.llm.with_structured_output(schema=CriticScoresOutput)
 
-        # 3. Execution
         try:
-            result: CriticScoresOutput = critic_chain.invoke({})
+            result: CriticScoresOutput = await critic_chain.ainvoke({})
         except Exception as e:
             print(f"Critics Agent failed to parse output: {e}")
             return {
@@ -109,9 +87,7 @@ class CriticsAgent(BaseAgent):
                 "qa_status": False,
             }
 
-        # 4. State Update
-        # Combine new suggestions with existing feedback for the next cycle.
-        combined_feedback = state.get("feedback", []) + result.suggestions
+        combined_feedback = state.get("brainstorm_feedback", []) + result.suggestions
         
         return {
             "critic_scores": {
@@ -120,6 +96,16 @@ class CriticsAgent(BaseAgent):
                 "humor": result.humor,
             },
             "critic_suggestions": result.suggestions,
-            "feedback": combined_feedback, 
+            "brainstorm_feedback": combined_feedback, 
             "qa_status": result.fact_check_pass,
         }
+
+_critics_agent_instance = CriticsAgent()
+
+async def critics_node(state: SongWritingState):
+    """
+    A simple wrapper to make the CriticsAgent class compatible
+    with the LangGraph .add_node() function.
+    """
+    print("---CRITICS: RUNNING ENSEMBLE EVALUATION (ASYNC)---")
+    return await _critics_agent_instance(state)

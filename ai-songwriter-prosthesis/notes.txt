@@ -100,3 +100,156 @@ Provide a real quick A-B for the user
 
 Include the model author for each lines
 
+
+
+
+The proposed architectural improvements require changes to the directory structure to better support the new concepts of **Tools**, **Dynamic Planning**, and enhanced **Configuration/State Management**.
+
+Here is the recommended **new project structure** and the reasoning for the key changes:
+
+## New Project Structure
+
+```
+├── app/
+│   ├── __pycache__/
+│   ├── agents/
+│   │   ├── __init__.py
+│   │   ├── base_agent.py
+│   │   ├── brainstorm.py
+│   │   ├── collaborator.py
+│   │   ├── critics.py
+│   │   ├── planner.py             # NEW: Agent for dynamic planning/action sequencing.
+│   │   ├── researcher.py          # REMAINS: Focus on utilizing the SearchTool.
+│   │   └── profanity_step.py      # Example new step (optional, or merge into Collaborator)
+│   ├── api/
+│   │   ├── __init__.py
+│   │   ├── config_routes.py
+│   │   └── routes.py
+│   ├── graph/
+│   │   ├── __init__.py
+│   │   ├── state.py               # MODIFIED: Updated SongWritingState for Provenance.
+│   │   └── workflow.py            # MODIFIED: Simplified graph, delegates control to Planner.
+│   ├── config/                    # NEW: Directory for application configuration.
+│   │   ├── __init__.py
+│   │   └── settings.py            # Pydantic or basic config loading for models/temps.
+│   ├── tools/                     # NEW: Directory for explicit, reusable function-calling tools.
+│   │   ├── __init__.py
+│   │   ├── search_tool.py         # SERP API Wrapper exposed as a Tool.
+│   │   ├── lyrics_parser_tool.py  # Wraps extract_plain_lyrics for Agents to call.
+│   │   ├── rhyme_tool.py          # Utility for checking/suggesting rhymes.
+│   │   └── lookup_tool.py         # Tool for meme/pop culture lookup (DB/specialized search).
+│   ├── utils/                     # Retained for general helpers (e.g., logging, LLM init).
+│   │   ├── __pycache__/
+│   │   ├── __init__.py
+│   │   ├── llm.py
+│   │   └── prompt_manager.py      # MODIFIED: Now loads from external YAML/config.
+│   └── main.py
+├── config/                        # NEW: Top-level directory for external configuration files.
+│   ├── prompts/
+│   │   └── prompts.yaml           # NEW: Externalized, versionable prompt templates.
+│   └── app_settings.yaml          # NEW: Model paths, temperatures, thresholds.
+├── data/
+├── static/
+│   └── index.html
+└── Dockerfile
+```
+
+## Key Structural Changes and Rationale
+
+| Old Directory/File | New Directory/File | Rationale |
+| :--- | :--- | :--- |
+| `app/prompts/song_prompts.py` | `config/prompts/prompts.yaml` (external) | **Decoupling and Version Control.** Moves all prompt strings out of Python code into an external, versionable YAML file, facilitating easier prompt engineering without code changes. `prompt_manager.py` will load this. |
+| `app/utils/config.py` (assumed) | `app/config/settings.py` & `config/app_settings.yaml` | **Standardized Configuration.** Separates code-level settings (Pydantic settings) from deployment-level configuration (YAML file) for models, temperatures, and thresholds. |
+| (None) | `app/tools/` | **Agentic Best Practice.** Creates a standard location for defining function-calling or structured-output tools (e.g., `search_tool.py`, `lyrics_parser_tool.py`) that are explicitly passed to and utilized by the Agents (especially `Collaborator` and `Planner`). |
+| (None) | `app/agents/planner.py` | **Dynamic Control.** Dedicated location for the new `PlannerAgent` that dictates the sequential flow of actions in the graph, replacing fixed graph edges with dynamic action selection. |
+| `app/agents/collaborator.py`, `app/agents/researcher.py` | **(Files remain, but content changes)** | **Tool Adoption.** These agents are modified to *use* the tools in `app/tools/` (e.g., `Collaborator` uses the `lyrics_parser_tool` and `search_tool`) rather than having embedded logic or relying on the flow for research. |
+| `app/graph/state.py` | **(File remains, but content changes)** | **Provenance Tracking.** The `SongWritingState` Pydantic model is updated to support line-level traceability, including `origin` and `revision_of` fields. |
+
+I can't generate and provide a downloadable PDF file directly. However, I can write out the **complete, detailed instructions** for restructuring your AI Songwriting application into a single, well-formatted text that you can easily copy and paste into a document (like Google Docs, Word, or a text editor) and save as a PDF yourself. 📄
+
+Here is the full restructuring plan, incorporating the move to **Producer**, **Lyracist**, and **Brainstormers**, along with the new **Tools** and **Configuration** directories.
+
+***
+
+
+
+
+# AI Songwriting Application Restructuring Plan
+
+This document outlines the necessary changes to the project structure, file renames, and high-level conceptual shifts to modernize the AI Songwriting application, focusing on agent autonomy, traceability, and external configuration.
+
+## 1. Project Structure Overhaul
+
+The following table details the required file system changes. **New** directories/files are marked, and **Renamed/Modified** files are noted.
+
+| Path | Status | Change Description |
+| :--- | :--- | :--- |
+| **config/** (Top-Level) | **NEW Directory** | Stores external configuration files. |
+| **config/prompts/** | **NEW Directory** | Stores all prompt templates. |
+| `config/prompts/prompts.yaml` | **NEW File** | **Externalized Prompt Templates.** Replaces `app/prompts/song_prompts.py`. |
+| `config/app_settings.yaml` | **NEW File** | Stores model names, temperatures, thresholds, and container settings. |
+| **app/agents/** | **Directory** | Contains all specialized agent classes. |
+| `app/agents/collaborator.py` | **DELETE/RENAME** | Renamed to `lyracist.py`. |
+| `app/agents/lyracist.py` | **NEW/RENAMED** | The core drafting/revising agent. |
+| `app/agents/brainstorm.py` | **DELETE/RENAME** | Renamed to `brainstormers.py`. |
+| `app/agents/brainstormers.py` | **NEW/RENAMED** | Contains YesAnd, NoBut, NonSequitur agents. |
+| `app/agents/planner.py` | **DELETE/RENAME** | Renamed to `producer.py`. |
+| `app/agents/producer.py` | **NEW/RENAMED** | The top-level strategic routing agent. |
+| `app/agents/researcher.py` | **MODIFIED** | Updated to primarily call the `SearchTool`. |
+| **app/tools/** | **NEW Directory** | Stores utility functions exposed to agents as formal tools. |
+| `app/tools/search_tool.py` | **NEW File** | Wraps `SerpAPIWrapper` as a callable Tool object. |
+| `app/tools/lyrics_parser_tool.py` | **NEW File** | Helper to parse/extract text from the new structured state. |
+| `app/tools/rhyme_tool.py` | **NEW File** | Optional utility for rhyme/meter checking. |
+| **app/graph/** | **Directory** | Contains LangGraph implementation. |
+| `app/graph/state.py` | **MODIFIED** | Update `SongWritingState` for **Provenance Tracking**. |
+| `app/graph/workflow.py` | **MODIFIED** | Simplified graph logic; now controlled by the `producer` node. |
+| **app/utils/** | **Directory** | General helpers. |
+| `app/utils/prompt_manager.py` | **MODIFIED** | Updated to load prompts from `config/prompts/prompts.yaml`. |
+| `app/prompts/song_prompts.py` | **DELETE** | Prompts are now externalized. |
+
+---
+
+## 2. Agent Renaming and Role Changes
+
+| Agent | Old Name (File/Class) | New Name (File/Class) | Primary Responsibilities |
+| :--- | :--- | :--- | :--- |
+| **Top-Level Orchestrator** | `collaborator`/`PlannerAgent` | **`producer.py`/`ProducerAgent`** | **Strategic Routing.** Sets the initial creative plan, monitors quality scores, and decides the next step (e.g., *revise chorus*, *skip fact-check*, *terminate*). |
+| **Creative Drafter** | `collaborator.py`/`CollaboratorAgent` | **`lyracist.py`/`LyracistAgent`** | **Drafting & Revision.** Generates and revises lyrics, *calls tools* (e.g., `SearchTool`, `RhymeTool`) as needed, and adheres to the **Provenance Tracking** data structure. |
+| **Parallel Feedback** | `brainstorm.py`/`*Agent` | **`brainstormers.py`/`*Brainstormer`** | Provides parallel feedback (YesAnd, NoBut, NonSequitur). Renamed the file to better reflect the collection of agents. |
+| **Factual Agent** | `researcher.py`/`ResearcherAgent` | **`researcher.py`/`ResearcherAgent`** | Focuses solely on interacting with the `SearchTool` and formatting the resulting facts for the Lyracist. |
+
+---
+
+## 3. Critical Code Implementation Steps
+
+### A. Provenance Tracking (Digital Property Rights)
+
+**Location:** `app/graph/state.py` (`SongWritingState` TypedDict/Pydantic Model)
+
+1.  **Structure Change:** The `draft_lyrics` field must be changed from a simple JSON/string to a list of structured objects (dictionaries).
+2.  **Required Fields per Lyric Line:**
+    * `line`: (`str`) The actual lyric text.
+    * `origin`: (`str`) Must be one of: `"Human_Input"`, `"AI_Draft_V[n]"`, or `"AI_Revision_V[n]"`.
+    * `revision_of`: (`str` or `None`) The previous line this line replaced, or `None` if it's new.
+    * `section`: (`str`) E.g., `"Verse 1"`, `"Chorus"`.
+
+### B. Configuration and Prompt Management
+
+**Location:** `app/utils/prompt_manager.py` and new `config/` directory.
+
+1.  **YAML Creation:** Create `config/prompts/prompts.yaml` and move all content from `app/prompts/song_prompts.py` into it using standard YAML syntax.
+2.  **Loader Update:** Update `PromptManager` to use a YAML loader (e.g., PyYAML) to read templates from the file system instead of a hardcoded Python dictionary.
+
+### C. Tool Integration
+
+**Location:** `app/tools/` directory and Agent classes (`lyracist.py`, `researcher.py`).
+
+1.  **Define Tools:** Create the tool files (e.g., `search_tool.py`) defining functions with clear docstrings and Pydantic schemas, ready for function-calling.
+2.  **Agent Adoption:** Update the `LyracistAgent` to accept tools in its `__init__` and use structured output prompting to allow the LLM to decide when to call the tools. This makes the Lyracist self-sufficient in gathering information or parsing the state.
+
+### D. Workflow Logic
+
+**Location:** `app/graph/workflow.py`
+
+1.  **Simplify Edges:** Replace many sequential or conditional edges with a single, crucial edge: `("producer", END_NODE)` and `("producer", [other_node])`.
+2.  **Producer Node:** Ensure the `producer` node runs at the start of the loop. It reads the current state (scores, facts, lyrics) and outputs the next action (e.g., `"next_step": "lyracist"`) that the LangGraph router then follows.

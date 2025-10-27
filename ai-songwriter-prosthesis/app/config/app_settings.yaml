@@ -1,0 +1,68 @@
+# config/app_settings.yaml
+#
+# Stores model names, temperatures, thresholds, and other application settings.
+# This version is updated to use Ollama exclusively.
+
+# --------------------------------------------------------------------------
+# LLM Provider Configuration
+# --------------------------------------------------------------------------
+llm_provider:
+  type: "ollama"
+  base_url: "http://host.docker.internal:11434"
+
+# --------------------------------------------------------------------------
+# Model settings for different agents
+# --------------------------------------------------------------------------
+# Available local models: "mistral-nemo:12b", "llama3.1:8b"
+models:
+  # Producer uses a high-quality model for strategic decisions
+  producer_model: "mistral-nemo:12b"
+  
+  # Lyracist uses a creative model
+  lyracist_model: "llama3.1:8b"
+  
+  # Brainstormers can use a fast, creative model
+  brainstormer_model: "llama3.1:8b"
+  
+  # Researcher uses a factual model
+  researcher_model: "mistral-nemo:12b"
+  
+  # Critic agent uses an ensemble (as defined in critics.py)
+  critic:
+    creative_model: "llama3.1:8b"       # For humor/creativity scoring
+    factual_model: "mistral-nemo:12b"  # For freshness/QA scoring
+    synthesizer_model: "mistral-nemo:12b" # For the final verdict
+
+# --------------------------------------------------------------------------
+# LLM generation parameters
+# --------------------------------------------------------------------------
+generation_config:
+  # Default temperature
+  temperature: 0.7
+  
+  # Agent-specific overrides
+  lyracist_temperature: 0.8
+  critic_creative_temp: 0.7
+  critic_factual_temp: 0.3
+
+# --------------------------------------------------------------------------
+# Quality and routing thresholds (Used by Producer)
+# --------------------------------------------------------------------------
+quality_thresholds:
+  # Avg score required for the Producer to terminate
+  min_avg_score: 0.9
+  # Fact-check (qa_status) must be true to terminate
+  qa_required: true
+
+# --------------------------------------------------------------------------
+# API keys (Load from environment variables, not hardcoded)
+# --------------------------------------------------------------------------
+api_keys:
+  serpapi_api_key: "ENV_SERPAPI_API_KEY"
+  # anthropic_api_key is no longer needed
+
+# --------------------------------------------------------------------------
+# Container/environment settings
+# --------------------------------------------------------------------------
+environment: "development"
+log_level: "INFO"

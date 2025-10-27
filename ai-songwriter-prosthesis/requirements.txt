@@ -1,15 +1,17 @@
 fastapi
 uvicorn[standard]
 langchain
-langchain-core >= 0.2.0
-langchain-google-genai
-langchain-community
-langchain-ollama
+langchain_community
 langgraph
 pydantic
-python-dotenv
-google-search-results
+PyYAML
+pronouncing
+serpapi
+
+# --- Tracing & Observability ---
 arize-phoenix
-asyncio
-openinference-instrumentation-langchain  # For LangChain tracing
-opentelemetry-api  # OTel core (auto-pulled, but explicit for safety)
+openinference-instrumentation-langchain
+opentelemetry-api
+opentelemetry-sdk
+opentelemetry-exporter-otlp
+opentelemetry-instrumentation-fastapi

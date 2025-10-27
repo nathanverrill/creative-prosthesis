@@ -1,91 +1,68 @@
-# ==============================================================================
-# --- app/agents/researcher.py (Including fact_check_node) ---
-# ==============================================================================
-from app.agents.base_agent import BaseAgent
 from app.graph.state import SongWritingState
-from app.utils.llm import search_tool 
+from app.utils.prompt_manager import PromptManager
+from app.utils.llm import get_llm
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_ollama import ChatOllama
-from typing import Dict, Any
-import json
+from langchain.agents import AgentExecutor, create_tool_calling_agent
+from pydantic import BaseModel, Field
+from typing import List
 
-# --- Helper Function (Copied for local use) ---
-def extract_plain_lyrics_researcher(draft_lyrics_json_str: str) -> str:
-    """Extracts a simple, readable string from the structured lyrics JSON."""
-    if not draft_lyrics_json_str:
-        return "No current draft."
-    try:
-        lyrics_list = json.loads(draft_lyrics_json_str)
-        return "\n".join([item.get('line', '') for item in lyrics_list if isinstance(item, dict)])
-    except:
-        return draft_lyrics_json_str
-# --- End Helper Function ---
+from app.tools.search_tool import SearchTool
 
+llm = get_llm("researcher_model")
+prompt_manager = PromptManager()
 
-class ResearcherAgent(BaseAgent):
+class FactList(BaseModel):
+    """A list of facts found by the researcher."""
+    facts: List[str] = Field(description="A list of 3-5 key facts summarizing the research findings.")
+
+async def researcher_node(state: SongWritingState):
+    """
+    The Researcher node. Its sole job is to use the SearchTool
+    to answer a query provided in the state. (Async)
+    """
+    print("---RESEARCHER: CONDUCTING RESEARCH (ASYNC)---")
     
-    def __init__(self):
-        super().__init__(agent_name="Researcher", task_type="research", use_tools=True, temperature=0.2) 
-        # Override for factual precision
-        self.llm = ChatOllama(
-            model="mistral-nemo:12b",
-            base_url="http://host.docker.internal:11434",
-            temperature=0.2
-        )
-
-    def __call__(self, state: SongWritingState) -> Dict[str, Any]:
-        """Gathers initial facts using the search tool."""
-        
-        # We manually invoke the tool for simplicity in this node
-        search_query = f"Key facts and context for song about: {state['inspiration']}"
-        # Assuming search_tool has a run method that accepts num_results
-        facts_result = search_tool.run(search_query, num_results=5) 
-        
-        # The result might be a long string; convert to a list for the state
-        # Truncate for state brevity
-        facts_list = [f"Source: SERP, Result: {facts_result[:300]}..."] if facts_result else ["No facts found."]
-
-        # Initialize feedback list here, as this is the entry node
-        return {"original_facts": facts_list, "feedback": []}
-
-# Fact check node
-def fact_check_node(state: SongWritingState) -> Dict[str, Any]:
-    """Node for AI_Researcher to fact-check the current draft."""
+    tools = [SearchTool()]
     
-    # Create factual LLM for check
-    llm = ChatOllama(
-        model="mistral-nemo:12b",
-        base_url="http://host.docker.internal:11434",
-        temperature=0.1
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", prompt_manager.get_prompt("researcher", "system")),
+        ("human", prompt_manager.get_prompt("researcher", "query"))
+    ])
+    
+    llm_with_facts = llm.with_structured_output(FactList)
+    
+    agent = create_tool_calling_agent(llm_with_facts, tools, prompt)
+    agent_executor = AgentExecutor(
+        agent=agent, 
+        tools=tools, 
+        verbose=True,
+        handle_parsing_errors=True
     )
+
+    query = state.get("research_query", state.get("topic", "No query provided"))
     
-    # --- NEW: Convert structured JSON to plain text for prompt ---
-    plain_lyrics = extract_plain_lyrics_researcher(state['draft_lyrics'])
+    if query == "No query provided":
+         print("---RESEARCHER: SKIPPED (NO QUERY)---")
+         return {
+             "history": state.get("history", []) + ["Researcher skipped (no query)."]
+         }
+
+    print(f"---RESEARCHER: RUNNING QUERY: {query}---")
+
+    response = await agent_executor.ainvoke({"query": query})
     
-    # Get the specific fact-check prompt
-    from app.utils.prompt_manager import prompt_manager
-    system_prompt = prompt_manager.get_prompt("fact_check_system")
-    human_prompt = prompt_manager.get_prompt("fact_check_human").format(
-        draft_lyrics=plain_lyrics, # Use plain text
-        original_facts="\n".join(state['original_facts'])
-    )
+    structured_output: FactList = response.get("output")
     
-    # Create a simple chain: messages -> LLM -> extract content
-    from langchain_core.prompts import ChatPromptTemplate
-    chain = ChatPromptTemplate.from_messages([
-        ("system", system_prompt),
-        ("human", human_prompt)
-    ]) | llm | (lambda msg: msg.content)
-    
-    try:
-        response_content = chain.invoke({})
-    except Exception as e:
-        response_content = f"Fact-check failed: {str(e)}"
-    
-    # Update both the specific fact check list AND the general feedback list
+    if structured_output and hasattr(structured_output, 'facts'):
+        new_facts = structured_output.facts
+    else:
+        print("---RESEARCHER: ERROR: Failed to get structured facts.---")
+        new_facts = ["Researcher failed to extract structured facts."]
+
+    print("---RESEARCHER: RESEARCH COMPLETE---")
+
     return {
-        # fact_checked_feedback is not in the official state, but good for local logging/debug
-        # "fact_checked_feedback": [response_content], 
-        "feedback": state['feedback'] + [response_content],
-        "qa_status": "pass" in response_content.lower(),  # Simple heuristic
+        "research_facts": state.get("research_facts", []) + new_facts,
+        "research_query": None,
+        "history": state.get("history", []) + ["Researcher found facts."]
     }
