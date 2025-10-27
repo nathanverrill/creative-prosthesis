@@ -205,3 +205,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+ai-songwriter-prosthesis/data/lock
+.gitignore
+ai-songwriter-prosthesis/data/wal/00000000
+ai-songwriter-prosthesis/prometheus-3.7.2.darwin-arm64/prometheus
