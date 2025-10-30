@@ -1,0 +1,5 @@
+# LLM configuration for local Ollama usage
+
+llm_provider: ollama
+llm_model: llama3.1:8b
+ollama_endpoint: http://host.docker.internal:11434

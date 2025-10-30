@@ -1,0 +1,41 @@
+PROJECT: Lyrics Lab Backend 
+
+GOAL:
+Build a creative AI-powered song lyric generator using multiple role-playing personalities (e.g., Rick Rubin, Andy Samberg, George Carlin). It should:
+
+- Take a theme + hook from the user
+- Use Ollama (local LLMs) to generate lyrics
+- Track the full version history for each line
+- Score each line (creativity, quality, offensiveness, relevance)
+- Provide a finalized version with a calculated human authorship ratio
+- Format output for pasting into Suno (song sections, instructions, etc.)
+- (Eventually) include adlibs/voices (e.g., “Danny Ric shoutout”)
+
+KEY REQUIREMENTS:
+- API built in FastAPI (already implemented)
+- Models loaded from Ollama (tested with `llama3.1` and `mistral-nemo`)
+- Dockerized
+- Configurable via `config.yaml`
+- Tracks full `history` per lyric line (author, version, scores)
+- `GET /finalize/song` returns a summary and final text
+- A future UI will show editable lines and authorship ratio
+- Human authorship must be > 51% to meet digital IP requirements
+
+EXAMPLE INPUT:
+theme = "Quantum physics and Issak Hadjar’s crash in the Australian GP"
+hook = "slip slip, the Hadjar flip"
+
+OPEN TASKS:
+- Improve prompt to add humor and structure (rap/pop styles)
+- Add support for different characters’ voices per line
+- Build A/B hook selection system before writing full lyrics
+- Integrate CrewAI agents in the next version
+- Improve LLM call handling + fallback
+- Build Suno music style prompt generator (e.g., “Club banger, F1 vibes”)
+
+USAGE CONTEXT:
+I'm using this with Suno to generate music after race weekends for F1 fans and drivers (including memes, facts, etc.). Needs to be clever, funny, and factually tight.
+
+HOW TO CONTINUE:
+You’re a creative agent. Think like a producer and suggest what would improve this flow. Write code, scoring logic, or draft lyrics. You can ask me for feedback or additional rules. Let’s collaborate.
+
